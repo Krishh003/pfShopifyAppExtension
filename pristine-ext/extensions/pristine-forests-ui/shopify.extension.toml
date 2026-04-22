@@ -33,6 +33,17 @@ type = "ui_extension"
 target = "customer-account.profile.block.render"
 module = "./src/ProfileCoupons.jsx"
 
+[extensions.capabilities]
+api_access = true
+network_access = false
+
+[[extensions.metafields]]
+namespace = "pristine"
+key = "Coupons"
+[[extensions.metafields]]
+namespace = "pristine"
+key = "coupons"
+
 # 3. Store Credit Block
 [[extensions]]
 name = "Pristine Credits"
@@ -43,6 +54,17 @@ type = "ui_extension"
 [[extensions.targeting]]
 target = "customer-account.profile.block.render"
 module = "./src/ProfileCredits.jsx"
+
+[extensions.capabilities]
+api_access = true
+network_access = false
+
+[[extensions.metafields]]
+namespace = "pristine"
+key = "Credits"
+[[extensions.metafields]]
+namespace = "pristine"
+key = "credits"
 
 # 4. Quick Actions Block
 [[extensions]]
@@ -55,6 +77,10 @@ type = "ui_extension"
 target = "customer-account.profile.block.render"
 module = "./src/ProfileActions.jsx"
 
+[extensions.capabilities]
+api_access = true
+network_access = false
+
 # 5. Order Index Block (Existing)
 [[extensions]]
 name = "Pristine Tracking"
@@ -65,3 +91,11 @@ type = "ui_extension"
 [[extensions.targeting]]
 target = "customer-account.order-index.block.render"
 module = "./src/OrderIndexBlock.jsx"
+
+[extensions.capabilities]
+api_access = true
+network_access = false
+
+[[extensions.metafields]]
+namespace = "pristine"
+key = "tracking"
