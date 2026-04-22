@@ -1,0 +1,94 @@
+api_version = "2024-04"
+
+# 1. Main Banner Block
+[[extensions]]
+name = "Pristine Banner"
+handle = "pristine-banner"
+uid = "c70dccda-8ce7-2309-322e-f5729e6b1fe9ed061ad1"
+type = "ui_extension"
+
+[[extensions.targeting]]
+target = "customer-account.profile.block.render"
+module = "./src/ProfileBanner.jsx"
+
+[extensions.capabilities]
+api_access = true
+network_access = false
+
+[[extensions.metafields]]
+namespace = "pristine"
+key = "credits"
+
+[[extensions.metafields]]
+namespace = "pristine"
+key = "coupons"
+
+[extensions.settings]
+[[extensions.settings.fields]]
+key = "banner_title"
+type = "single_line_text_field"
+name = "Banner Title"
+description = "Custom title for the Hero Banner"
+
+# 2. Personalized Coupons Block
+[[extensions]]
+name = "Pristine Coupons"
+handle = "pristine-coupons"
+uid = "fd9e0bda-a8c0-acb7-adcb-98d4652c44c73203ece8"
+type = "ui_extension"
+
+[[extensions.targeting]]
+target = "customer-account.profile.block.render"
+module = "./src/ProfileCoupons.jsx"
+
+[extensions.capabilities]
+api_access = true
+clipboard = true
+
+[[extensions.metafields]]
+namespace = "pristine"
+key = "coupons"
+
+# 3. Store Credit Block
+[[extensions]]
+name = "Pristine Credits"
+handle = "pristine-credits"
+uid = "83152970-c477-911a-0273-3d87760809d04139f292"
+type = "ui_extension"
+
+[[extensions.targeting]]
+target = "customer-account.profile.block.render"
+module = "./src/ProfileCredits.jsx"
+
+[extensions.capabilities]
+api_access = true
+clipboard = true
+
+[[extensions.metafields]]
+namespace = "pristine"
+key = "credits"
+
+# 4. Quick Actions Block
+[[extensions]]
+name = "Pristine Actions"
+handle = "pristine-actions"
+uid = "e8d9bc85-328a-4c73-b863-3007e27cb8ec420b471b"
+type = "ui_extension"
+
+[[extensions.targeting]]
+target = "customer-account.profile.block.render"
+module = "./src/ProfileActions.jsx"
+
+# 5. Order Index Block (Existing)
+[[extensions]]
+name = "Pristine Tracking"
+handle = "pristine-tracking"
+uid = "3a353f48-1240-2896-fe4f-5e549e02096f1889b09f"
+type = "ui_extension"
+
+[[extensions.targeting]]
+target = "customer-account.order-index.block.render"
+module = "./src/OrderIndexBlock.jsx"
+
+[extensions.capabilities]
+api_access = true

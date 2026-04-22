@@ -1,0 +1,17 @@
+{
+  "name": "pristine-forests-portal",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "extensions/*"
+  ],
+  "scripts": {
+    "dev": "shopify app dev",
+    "deploy": "shopify app deploy",
+    "build": "shopify app build"
+  },
+  "dependencies": {
+    "@shopify/app": "latest",
+    "@shopify/cli": "latest"
+  }
+}

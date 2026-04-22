@@ -1,0 +1,19 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "4722c94fb5eb2ea0d84f339b0022637e"
+name = "pristine-forests-app"
+application_url = "https://example.com"
+embedded = true
+handle = "pristine-forests-portal"
+
+[webhooks]
+api_version = "2024-04"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_orders, read_customers"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [ ]
