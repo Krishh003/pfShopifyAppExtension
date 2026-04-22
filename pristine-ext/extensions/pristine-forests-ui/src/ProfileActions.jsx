@@ -4,12 +4,12 @@ import {
   InlineLayout,
   Heading,
   Text,
+  Card,
   Link,
   View,
 } from '@shopify/ui-extensions-react/customer-account';
 
 import { THEME } from './theme';
-import { PristineCard } from './PristineCard';
 
 export default reactExtension(
   'customer-account.profile.block.render',
@@ -18,10 +18,14 @@ export default reactExtension(
 
 function ProfileActions() {
   return (
-    <InlineLayout columns={['fill', 'fill']} spacing={THEME.spacing.base}>
+    <InlineLayout columns={['fill', 'fill', 'fill']} spacing={THEME.spacing.base}>
       <FeatureCard 
         title="Track Orders" 
-        description="Real-time updates on your orders." 
+        description="Updates on your forest parcels." 
+      />
+      <FeatureCard 
+        title="Forest Perks" 
+        description="Check your tree-planting credits." 
       />
       <FeatureCard 
         title="Support" 
@@ -33,12 +37,14 @@ function ProfileActions() {
 
 function FeatureCard({ title, description }) {
   return (
-    <PristineCard padding={THEME.spacing.loose}>
-      <BlockStack spacing={THEME.spacing.tight}>
-        <Heading level={3}>{title}</Heading>
-        <Text size="small" appearance="subdued">{description}</Text>
-        <Link to="#">Manage</Link>
-      </BlockStack>
-    </PristineCard>
+    <Card>
+      <View padding={THEME.spacing.loose}>
+        <BlockStack spacing={THEME.spacing.tight}>
+          <Heading level={3}>{title}</Heading>
+          <Text size="small" appearance="subdued">{description}</Text>
+          <Link to="#">Manage</Link>
+        </BlockStack>
+      </View>
+    </Card>
   );
 }

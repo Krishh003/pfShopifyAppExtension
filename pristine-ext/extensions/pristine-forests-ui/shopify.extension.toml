@@ -1,4 +1,4 @@
-api_version = "2024-04"
+api_version = "2025-07"
 
 # 1. Main Banner Block
 [[extensions]]
@@ -14,14 +14,6 @@ module = "./src/ProfileBanner.jsx"
 [extensions.capabilities]
 api_access = true
 network_access = false
-
-[[extensions.metafields]]
-namespace = "pristine"
-key = "credits"
-
-[[extensions.metafields]]
-namespace = "pristine"
-key = "coupons"
 
 [extensions.settings]
 [[extensions.settings.fields]]
@@ -41,14 +33,6 @@ type = "ui_extension"
 target = "customer-account.profile.block.render"
 module = "./src/ProfileCoupons.jsx"
 
-[extensions.capabilities]
-api_access = true
-clipboard = true
-
-[[extensions.metafields]]
-namespace = "pristine"
-key = "coupons"
-
 # 3. Store Credit Block
 [[extensions]]
 name = "Pristine Credits"
@@ -59,14 +43,6 @@ type = "ui_extension"
 [[extensions.targeting]]
 target = "customer-account.profile.block.render"
 module = "./src/ProfileCredits.jsx"
-
-[extensions.capabilities]
-api_access = true
-clipboard = true
-
-[[extensions.metafields]]
-namespace = "pristine"
-key = "credits"
 
 # 4. Quick Actions Block
 [[extensions]]
@@ -89,6 +65,3 @@ type = "ui_extension"
 [[extensions.targeting]]
 target = "customer-account.order-index.block.render"
 module = "./src/OrderIndexBlock.jsx"
-
-[extensions.capabilities]
-api_access = true
