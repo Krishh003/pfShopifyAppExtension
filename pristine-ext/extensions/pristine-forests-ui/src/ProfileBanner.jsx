@@ -17,8 +17,8 @@ function ProfileBanner() {
           Convert your pending Cash on Delivery orders to prepaid for seamless delivery and exclusive forest rewards.
         </s-text>
         <s-button-group>
-          <s-button variant="primary">Go prepaid</s-button>
-          <s-button variant="secondary">Learn more</s-button>
+          <s-button variant="primary">GO PREPAID</s-button>
+          <s-button variant="secondary">LEARN MORE</s-button>
         </s-button-group>
       </s-stack>
     </s-section>

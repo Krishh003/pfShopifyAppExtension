@@ -11,7 +11,7 @@
     "build": "shopify app build"
   },
   "dependencies": {
-    "@shopify/app": "latest",
-    "@shopify/cli": "latest"
+    "@shopify/app": "^3.58.2",
+    "@shopify/cli": "^3.94.3"
   }
 }

@@ -40,7 +40,7 @@ function createOperationsStub() {
   };
 }
 
-async function request(app, method, path, body) {
+async function request(app, method, path, body, headers = {}) {
   const server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   const { port } = server.address();
@@ -48,7 +48,7 @@ async function request(app, method, path, body) {
   try {
     const response = await fetch(`http://127.0.0.1:${port}${path}`, {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
 
@@ -93,6 +93,55 @@ test('credit endpoint uses real store credit operation and mirrors display state
   assert.equal(calls[0].name, 'creditStoreCreditAccount');
   assert.equal(calls[1].name, 'mirrorCustomerMetafield');
   assert.equal(calls[1].input.key, 'portal_status');
+});
+
+test('admin mutation endpoints require the configured internal API token', async () => {
+  const { operations } = createOperationsStub();
+  const app = createApp({
+    operations,
+    config: {
+      shopDomain: 'pristine.myshopify.com',
+      internalApiToken: 'test-secret',
+    },
+  });
+
+  const denied = await request(app, 'POST', '/api/store-credit/credit', {
+    customerId: '42',
+    amount: '10.00',
+    currencyCode: 'INR',
+  });
+  const allowed = await request(app, 'POST', '/api/store-credit/credit', {
+    customerId: '42',
+    amount: '10.00',
+    currencyCode: 'INR',
+  }, { 'X-Pristine-Internal-Token': 'test-secret' });
+
+  assert.equal(denied.status, 401);
+  assert.equal(denied.payload.error, 'Internal API token is required');
+  assert.equal(allowed.status, 200);
+});
+
+test('preorder cart endpoints remain public for storefront use', async () => {
+  const { operations } = createOperationsStub();
+  const app = createApp({
+    operations,
+    config: {
+      shopDomain: 'pristine.myshopify.com',
+      internalApiToken: 'test-secret',
+      preorderCart: { sampleVariantIds: [101] },
+    },
+  });
+
+  const configResponse = await request(app, 'GET', '/api/preorder-cart/config');
+  const planResponse = await request(app, 'POST', '/api/preorder-cart/plan', {
+    cart: {
+      items_subtotal_price: 1000,
+      items: [],
+    },
+  });
+
+  assert.equal(configResponse.status, 200);
+  assert.equal(planResponse.status, 200);
 });
 
 test('coupon endpoint creates a native discount and mirrors visible coupon summary', async () => {

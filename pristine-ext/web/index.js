@@ -20,6 +20,7 @@ export function createApp({
     shopDomain: process.env.SHOP_DOMAIN,
     apiVersion: process.env.API_VERSION || DEFAULT_API_VERSION,
     preorderCart: buildPreorderCartConfigFromEnv(),
+    internalApiToken: process.env.INTERNAL_API_TOKEN,
   },
 } = {}) {
   const app = express();
@@ -36,7 +37,7 @@ export function createApp({
     });
   });
 
-  app.post('/api/store-credit/credit', asyncHandler(async (req, res) => {
+  app.post('/api/store-credit/credit', requireInternalToken(config), asyncHandler(async (req, res) => {
     assertRequired(req.body.customerId, 'customerId');
     assertRequired(req.body.amount, 'amount');
     assertRequired(req.body.currencyCode, 'currencyCode');
@@ -56,7 +57,7 @@ export function createApp({
     res.json({ success: true, transaction });
   }));
 
-  app.post('/api/store-credit/debit', asyncHandler(async (req, res) => {
+  app.post('/api/store-credit/debit', requireInternalToken(config), asyncHandler(async (req, res) => {
     assertRequired(req.body.customerId, 'customerId');
     assertRequired(req.body.amount, 'amount');
     assertRequired(req.body.currencyCode, 'currencyCode');
@@ -76,7 +77,7 @@ export function createApp({
     res.json({ success: true, transaction });
   }));
 
-  app.post('/api/coupons/create', asyncHandler(async (req, res) => {
+  app.post('/api/coupons/create', requireInternalToken(config), asyncHandler(async (req, res) => {
     assertRequired(req.body.title, 'title');
     assertRequired(req.body.code, 'code');
 
@@ -101,7 +102,7 @@ export function createApp({
     res.json({ success: true, discount });
   }));
 
-  app.post('/api/preorder-discounts/setup', asyncHandler(async (req, res) => {
+  app.post('/api/preorder-discounts/setup', requireInternalToken(config), asyncHandler(async (req, res) => {
     assertRequired(req.body.functionId, 'functionId');
 
     const setup = buildPreorderDiscountSetup({
@@ -147,7 +148,7 @@ export function createApp({
     });
   }));
 
-  app.post('/api/orders/tracking', asyncHandler(async (req, res) => {
+  app.post('/api/orders/tracking', requireInternalToken(config), asyncHandler(async (req, res) => {
     assertRequired(req.body.orderId, 'orderId');
     assertRequired(req.body.tracking, 'tracking');
 
@@ -159,7 +160,7 @@ export function createApp({
     res.json({ success: true, metafield });
   }));
 
-  app.post('/api/prepaid-conversion/intent', asyncHandler(async (req, res) => {
+  app.post('/api/prepaid-conversion/intent', requireInternalToken(config), asyncHandler(async (req, res) => {
     assertRequired(req.body.customerId, 'customerId');
     assertRequired(req.body.orderId, 'orderId');
 
@@ -181,7 +182,7 @@ export function createApp({
     });
   }));
 
-  app.post('/api/credits/update', asyncHandler(async (req, res) => {
+  app.post('/api/credits/update', requireInternalToken(config), asyncHandler(async (req, res) => {
     const transaction = await operations.creditStoreCreditAccount({
       customerId: req.body.customerId,
       amount: req.body.amount,
@@ -191,7 +192,7 @@ export function createApp({
     res.json({ success: true, transaction, deprecated: '/api/store-credit/credit' });
   }));
 
-  app.post('/api/coupons/update', asyncHandler(async (req, res) => {
+  app.post('/api/coupons/update', requireInternalToken(config), asyncHandler(async (req, res) => {
     const metafield = await operations.mirrorCustomerMetafield({
       customerId: req.body.customerId,
       key: 'visible_coupons',
@@ -213,6 +214,22 @@ export function createApp({
   });
 
   return app;
+}
+
+function requireInternalToken(config) {
+  return (req, res, next) => {
+    if (!config.internalApiToken) {
+      next();
+      return;
+    }
+
+    if (req.get('X-Pristine-Internal-Token') !== config.internalApiToken) {
+      res.status(401).json({ error: 'Internal API token is required' });
+      return;
+    }
+
+    next();
+  };
 }
 
 function buildPreorderCartConfigFromEnv() {

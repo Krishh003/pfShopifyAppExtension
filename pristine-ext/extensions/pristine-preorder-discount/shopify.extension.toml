@@ -6,7 +6,8 @@ type = "function"
 description = "Applies Pristine Forests preorder percentage tiers."
 
 [build]
-command = "node scripts/build-function.mjs"
+command = "cargo build --target=wasm32-unknown-unknown --release"
+path = "target/wasm32-unknown-unknown/release/pristine_preorder_discount.wasm"
 
 [[targeting]]
 target = "cart.lines.discounts.generate.run"

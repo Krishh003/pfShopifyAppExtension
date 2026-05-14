@@ -1,47 +1,68 @@
 # Pristine Preorder Discount Function
 
-Shopify Discount Function for the preorder percentage tiers described in the preorder coupon PDF.
+Rust Shopify Discount Function for the preorder coupon tiers described in the preorder coupon PDF.
 
-## Implemented Behavior
+## Module Overview
 
-The function reads cart subtotal and app-owned function configuration from `$app/function-configuration`.
+The function reads the cart subtotal, cart lines, discount classes, and `$app/function-configuration` JSON. It returns Shopify Discount API operations for the best eligible preorder benefit.
 
-When the active discount class includes `ORDER`, it can apply one preorder percentage tier:
+## Dependencies
 
-- Under 2000: `PREORDER25`, 25% off.
-- 2000 to 2999.99: `PREORDER30`, 30% off.
-- 3000 to 4999.99: `PREORDER30`, 30% off.
-- 5000 and above: `PREORDER40`, 40% off.
-
-When the active discount class includes `PRODUCT`, it can also apply 100% cart-line discounts for configured free item variants, matching travel-size variants, and configured sample variants.
-
-When configuration has `mode = "manual_override"` and `forcedCode = "FREETRAVEL"`, the function returns the configured free travel-size benefit instead of the automatic percentage tier.
-
-For automatic mode, the function estimates savings for the eligible percentage tier, configured auto benefits, and sample entitlement benefit, then returns only the highest-value eligible benefit group.
-
-## Platform Boundary
-
-Shopify Discount Functions cannot add or remove cart lines. This function discounts free-item and sample lines only when those lines already exist in the cart. A storefront/cart integration still needs to:
-
-- Add eligible sample/freebie variants to the cart.
-- Remove stale sample/freebie variants when qualifying items are removed.
-- Render richer cart messaging before checkout if the storefront needs it.
+- Rust toolchain with `wasm32-unknown-unknown`.
+- `shopify_function = "2.1.0"` from `Cargo.toml`.
+- Shopify CLI for schema generation, build packaging, and deployment.
 
 ## Files
 
-- `src/run.graphql`: Function input query.
-- `src/run.js`: Discount selection, free item, travel-size, sample, and best-value logic.
-- `src/index.js`: Function export entrypoint.
-- `scripts/build-function.mjs`: Local build script used by Shopify CLI.
-- `test/run.test.js`: Node test coverage for percentage tiering and manual override mode.
-- `test/run.test.js`: Node test coverage for percentage tiering, manual override, free fixed items, travel-size matching, best-value selection, and sample entitlements.
+- `src/main.rs`: Rust function implementation.
+- `src/run.graphql`: Shopify Function input query.
+- `schema.graphql`: Generated Shopify Function schema used by Rust typegen.
+- `Cargo.toml` / `Cargo.lock`: Rust package and locked dependency graph.
+- `shopify.extension.toml`: Shopify extension configuration.
+
+The old JavaScript function files and JS tests have been removed. This extension now builds through Cargo, not Javy.
+
+## Behavior
+
+When the active discount class includes `ORDER`, the function can apply one preorder percentage tier:
+
+- `PREORDER25`: 25% off carts below 2000.
+- `PREORDER30`: 30% off carts from 2000 through 4999.99.
+- `PREORDER40`: 40% off carts from 5000 and above.
+
+When the active discount class includes `PRODUCT`, it can also discount configured cart lines at 100% for:
+
+- Fixed free item variant IDs.
+- Travel-size variant mappings.
+- Sample variant entitlements.
+
+For automatic mode, the function estimates savings across eligible percentage and product benefits, then returns the highest-value eligible benefit group.
+
+For manual override mode, `forcedCode = "FREETRAVEL"` returns the configured free travel-size benefit instead of automatic tiering.
+
+## Platform Boundary
+
+Shopify Discount Functions cannot add or remove cart lines. This function only discounts eligible lines that are already present in the cart. The storefront cart integration is responsible for adding missing samples/freebies and cleaning stale auto-managed lines before checkout.
+
+## Configuration Notes
+
+`shopify.extension.toml` must keep:
+
+```toml
+[[targeting]]
+target = "cart.lines.discounts.generate.run"
+input_query = "src/run.graphql"
+export = "run"
+```
+
+The Rust WASM also exports `_start` as a fallback entrypoint for Shopify validation. Checkout must invoke `run`; invoking `_start` aborts immediately.
 
 ## Commands
 
 Run from this directory:
 
 ```powershell
-npm test
+cargo build --target=wasm32-unknown-unknown --release
 ```
 
 Run the full Shopify build from `pristine-ext`:
@@ -50,16 +71,12 @@ Run the full Shopify build from `pristine-ext`:
 npm run build
 ```
 
-## Setup Notes
-
-Deploy the function through Shopify CLI, then pass the resulting function id to the backend endpoint:
+Deploy from `pristine-ext`:
 
 ```powershell
-Invoke-RestMethod `
-  -Method Post `
-  -Uri "http://localhost:3000/api/preorder-discounts/setup" `
-  -ContentType "application/json" `
-  -Body '{"functionId":"YOUR_FUNCTION_ID"}'
+npm run deploy -- --allow-updates
 ```
 
-The backend creates the automatic app discount and the code app discounts that reference this function.
+## Deployment Status
+
+The latest verified development-store release is `pristine-forests-portal-48`.
