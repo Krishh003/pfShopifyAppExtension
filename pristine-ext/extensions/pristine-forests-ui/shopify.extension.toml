@@ -1,4 +1,4 @@
-api_version = "2025-07"
+api_version = "2026-04"
 
 # 1. Main Banner Block
 [[extensions]]
@@ -43,6 +43,9 @@ key = "Coupons"
 [[extensions.metafields]]
 namespace = "pristine"
 key = "coupons"
+[[extensions.metafields]]
+namespace = "pristine"
+key = "visible_coupons"
 
 # 3. Store Credit Block
 [[extensions]]
@@ -65,6 +68,9 @@ key = "Credits"
 [[extensions.metafields]]
 namespace = "pristine"
 key = "credits"
+[[extensions.metafields]]
+namespace = "pristine"
+key = "portal_status"
 
 # 4. Quick Actions Block
 [[extensions]]
@@ -99,3 +105,6 @@ network_access = false
 [[extensions.metafields]]
 namespace = "pristine"
 key = "tracking"
+[[extensions.metafields]]
+namespace = "pristine"
+key = "tracking_summary"

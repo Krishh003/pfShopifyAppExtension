@@ -1,37 +1,40 @@
-import {
-  reactExtension,
-  BlockStack,
-  Heading,
-  Text,
-  Card,
-  View,
-  useApi,
-} from '@shopify/ui-extensions-react/customer-account';
-import React, { useEffect, useState } from 'react';
+/** @jsxImportSource preact */
+import '@shopify/ui-extensions/preact';
 
-import { THEME } from './theme';
+import { render } from 'preact';
+import { useEffect, useState } from 'preact/hooks';
 
-export default reactExtension(
-  'customer-account.profile.block.render',
-  () => <ProfileCredits />
-);
+import { formatCreditBalance, getDisplayCreditBalance } from './creditBalance';
+
+export default function extension() {
+  render(<ProfileCredits />, document.body);
+}
 
 function ProfileCredits() {
-  const api = useApi();
-  const [credits, setCredits] = useState(null);
+  const [creditBalance, setCreditBalance] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchCredits() {
       try {
-        console.log('Fetching credits via Customer Account API...');
-        const response = await fetch("shopify://customer-account/api/2026-04/graphql.json", {
+        const response = await fetch('shopify://customer-account/api/2026-04/graphql.json', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             query: `
               query GetCredits {
                 customer {
+                  storeCreditAccounts(first: 10) {
+                    nodes {
+                      balance {
+                        amount
+                        currencyCode
+                      }
+                    }
+                  }
+                  portal_status: metafield(namespace: "pristine", key: "portal_status") {
+                    value
+                  }
                   credits: metafield(namespace: "pristine", key: "Credits") {
                     value
                   }
@@ -40,53 +43,35 @@ function ProfileCredits() {
                   }
                 }
               }
-            `
+            `,
           }),
         });
 
         const result = await response.json();
-        console.log('GraphQL Result:', result);
-        
-        if (result.errors) {
-          result.errors.forEach(err => console.error('GraphQL Error Message:', err.message));
-        }
 
         if (result.data?.customer) {
-          const val = result.data.customer.credits?.value || result.data.customer.credits_lower?.value;
-          setCredits(val);
+          setCreditBalance(getDisplayCreditBalance(result.data.customer));
         }
       } catch (err) {
-        console.error('Fetch error:', err);
+        console.error('Fetch credits error:', err);
       } finally {
         setLoading(false);
       }
     }
 
     fetchCredits();
-  }, [api]);
-
-  const value = credits;
-  let balance = '₹ 0.00';
-
-  if (value) {
-    const amount = parseFloat(value) / 100;
-    balance = amount.toLocaleString('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-    });
-  }
+  }, []);
 
   return (
-    <Card>
-      <View padding={THEME.spacing.loose}>
-        <BlockStack spacing={THEME.spacing.tight}>
-          <Heading level={2}>Store Credit</Heading>
-          <View padding="base" background="surfaceSuccess" cornerRadius="base">
-             <Text size="extraLarge" color="success">{balance}</Text>
-          </View>
-          <Text size="small" appearance="subdued">Automatically applied at checkout.</Text>
-        </BlockStack>
-      </View>
-    </Card>
+    <s-section heading="Store Credit">
+      <s-stack gap="base">
+        <s-box padding="base" background="subdued" border="base" border-radius="base">
+          <s-text>{formatCreditBalance(creditBalance)}</s-text>
+        </s-box>
+        <s-text color="subdued">
+          {loading ? 'Loading latest balance...' : 'Automatically applied at checkout.'}
+        </s-text>
+      </s-stack>
+    </s-section>
   );
 }

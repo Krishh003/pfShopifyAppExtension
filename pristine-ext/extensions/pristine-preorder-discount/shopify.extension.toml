@@ -1,0 +1,14 @@
+api_version = "2026-04"
+name = "Pristine Preorder Discount"
+handle = "pristine-preorder-discount"
+uid = "18f428f2-4ca0-4e99-8ac5-33b4a5d0c70769d5c971"
+type = "function"
+description = "Applies Pristine Forests preorder percentage tiers."
+
+[build]
+command = "node scripts/build-function.mjs"
+
+[[targeting]]
+target = "cart.lines.discounts.generate.run"
+input_query = "src/run.graphql"
+export = "run"

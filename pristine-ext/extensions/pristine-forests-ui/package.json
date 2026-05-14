@@ -1,11 +1,13 @@
 {
   "name": "pristine-forests-ui",
   "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
   "dependencies": {
-    "@shopify/ui-extensions": "latest",
-    "@shopify/ui-extensions-react": "latest",
-    "preact": "^10.20.0",
-    "react": "^18.0.0",
-    "react-dom": "^18.0.0"
+    "@preact/signals": "^2.3.0",
+    "@shopify/ui-extensions": "2026.4.x",
+    "preact": "^10.20.0"
   }
 }

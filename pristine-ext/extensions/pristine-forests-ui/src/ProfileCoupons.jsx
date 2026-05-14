@@ -1,39 +1,32 @@
-import {
-  reactExtension,
-  BlockStack,
-  InlineLayout,
-  Heading,
-  Text,
-  Card,
-  Link,
-  View,
-  useApi,
-} from '@shopify/ui-extensions-react/customer-account';
-import React, { useEffect, useState } from 'react';
+/** @jsxImportSource preact */
+import '@shopify/ui-extensions/preact';
 
-import { THEME } from './theme';
+import { render } from 'preact';
+import { useEffect, useState } from 'preact/hooks';
 
-export default reactExtension(
-  'customer-account.profile.block.render',
-  () => <ProfileCoupons />
-);
+import { normalizeCouponOffers } from './couponOffers';
+
+export default function extension() {
+  render(<ProfileCoupons />, document.body);
+}
 
 function ProfileCoupons() {
-  const api = useApi();
   const [coupons, setCoupons] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchCoupons() {
       try {
-        console.log('Fetching coupons via Customer Account API...');
-        const response = await fetch("shopify://customer-account/api/2026-04/graphql.json", {
+        const response = await fetch('shopify://customer-account/api/2026-04/graphql.json', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             query: `
               query GetCoupons {
                 customer {
+                  visible_coupons: metafield(namespace: "pristine", key: "visible_coupons") {
+                    value
+                  }
                   coupons: metafield(namespace: "pristine", key: "Coupons") {
                     value
                   }
@@ -42,22 +35,19 @@ function ProfileCoupons() {
                   }
                 }
               }
-            `
+            `,
           }),
         });
 
         const result = await response.json();
-        console.log('GraphQL Coupons Result:', result);
-        
-        if (result.errors) {
-          result.errors.forEach(err => console.error('GraphQL Coupons Error Message:', err.message));
-        }
+        const val =
+          result.data?.customer?.visible_coupons?.value ||
+          result.data?.customer?.coupons?.value ||
+          result.data?.customer?.coupons_lower?.value;
 
-        if (result.data?.customer) {
-          const val = result.data.customer.coupons?.value || result.data.customer.coupons_lower?.value;
-          if (val) {
-            setCoupons(JSON.parse(val));
-          }
+        if (val) {
+          const parsed = JSON.parse(val);
+          setCoupons(Array.isArray(parsed) ? parsed : [parsed]);
         }
       } catch (err) {
         console.error('Fetch coupons error:', err);
@@ -67,40 +57,35 @@ function ProfileCoupons() {
     }
 
     fetchCoupons();
-  }, [api]);
+  }, []);
 
-  const value = coupons;
-  let couponData = [];
-
-  if (value && Array.isArray(value)) {
-    couponData = value;
-  }
+  const couponData = normalizeCouponOffers(coupons);
 
   return (
-    <Card>
-      <View padding={THEME.spacing.loose}>
-        <BlockStack spacing={THEME.spacing.tight}>
-          <Heading level={2}>Your Coupons</Heading>
-          
-          {couponData.length > 0 ? (
-            couponData.map((coupon, index) => (
-              <View key={index} padding="base" background="surfaceTertiary" cornerRadius="base" border="subdued">
-                <BlockStack spacing="extraTight">
-                  <InlineLayout columns={['fill', 'auto']} blockAlignment="center">
-                    <Text appearance="accent" size="large">{coupon.code}</Text>
-                    <Link to="#">Copy</Link>
-                  </InlineLayout>
-                  <Text size="small" appearance="subdued">{coupon.discount} — Expires {coupon.expiry}</Text>
-                </BlockStack>
-              </View>
-            ))
-          ) : (
-            <View padding="base" background="surfaceTertiary" cornerRadius="base" border="subdued">
-              <Text appearance="subdued">No active coupons available.</Text>
-            </View>
-          )}
-        </BlockStack>
-      </View>
-    </Card>
+    <s-section heading="Your Coupons">
+      <s-stack gap="base">
+        {loading ? <s-text color="subdued">Loading coupons...</s-text> : null}
+        {couponData.length > 0 ? (
+          couponData.map((coupon) => (
+            <s-box key={coupon.code} padding="base" background="subdued" border="base" border-radius="base">
+              <s-stack gap="small">
+                <s-grid grid-template-columns="1fr auto" gap="base" align-items="center">
+                  <s-text>{coupon.code}</s-text>
+                  <s-clipboard-item text={coupon.code} />
+                </s-grid>
+                <s-text color="subdued">
+                  {coupon.discount || coupon.title || 'Available now'} - Expires{' '}
+                  {coupon.expiry || coupon.expiresAt || 'not set'}
+                </s-text>
+              </s-stack>
+            </s-box>
+          ))
+        ) : (
+          <s-box padding="base" background="subdued" border="base" border-radius="base">
+            <s-text color="subdued">No active coupons available.</s-text>
+          </s-box>
+        )}
+      </s-stack>
+    </s-section>
   );
 }

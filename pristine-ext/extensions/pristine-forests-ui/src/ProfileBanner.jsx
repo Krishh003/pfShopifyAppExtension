@@ -1,42 +1,26 @@
-import {
-  reactExtension,
-  BlockStack,
-  InlineLayout,
-  Heading,
-  Text,
-  Button,
-  Card,
-  useSettings,
-  View,
-} from '@shopify/ui-extensions-react/customer-account';
+/** @jsxImportSource preact */
+import '@shopify/ui-extensions/preact';
 
-import { THEME } from './theme';
+import { render } from 'preact';
 
-export default reactExtension(
-  'customer-account.profile.block.render',
-  () => <ProfileBanner />
-);
+export default function extension() {
+  render(<ProfileBanner />, document.body);
+}
 
 function ProfileBanner() {
-  const { banner_title } = useSettings();
+  const title = shopify.settings.value.banner_title || 'Elevate your experience';
 
   return (
-    <Card>
-      <View padding={THEME.spacing.loose}>
-        <BlockStack spacing={THEME.spacing.base}>
-          <Heading level={2}>
-            {banner_title || 'Elevate your experience'}
-          </Heading>
-          <Text size="large">
-            Convert your pending Cash on Delivery orders to prepaid for seamless delivery 
-            and exclusive forest rewards.
-          </Text>
-          <InlineLayout spacing={THEME.spacing.base}>
-            <Button kind="primary">GO PREPAID</Button>
-            <Button kind="secondary">LEARN MORE</Button>
-          </InlineLayout>
-        </BlockStack>
-      </View>
-    </Card>
+    <s-section heading={title}>
+      <s-stack gap="base">
+        <s-text>
+          Convert your pending Cash on Delivery orders to prepaid for seamless delivery and exclusive forest rewards.
+        </s-text>
+        <s-button-group>
+          <s-button variant="primary">Go prepaid</s-button>
+          <s-button variant="secondary">Learn more</s-button>
+        </s-button-group>
+      </s-stack>
+    </s-section>
   );
 }
