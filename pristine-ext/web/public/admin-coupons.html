@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pristine Forests Coupon Admin</title>
+    <link rel="stylesheet" href="/admin-coupons.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Pristine Forests Admin</p>
+          <h1>Coupon Codes</h1>
+        </div>
+        <button class="icon-button" id="refreshButton" type="button" aria-label="Refresh coupons" title="Refresh coupons">
+          Refresh
+        </button>
+      </header>
+
+      <section class="panel auth-panel" aria-labelledby="authHeading">
+        <div>
+          <h2 id="authHeading">Access</h2>
+          <p>Use the internal admin token configured for this backend.</p>
+        </div>
+        <label>
+          <span>Internal token</span>
+          <input id="tokenInput" type="password" autocomplete="off">
+        </label>
+        <button id="saveTokenButton" type="button">Save token</button>
+      </section>
+
+      <section class="workspace">
+        <form class="panel coupon-form" id="couponForm">
+          <div class="section-heading">
+            <h2>Create Coupon</h2>
+            <p>Creates a Shopify-native discount code.</p>
+          </div>
+
+          <label>
+            <span>Title</span>
+            <input name="title" type="text" placeholder="Welcome offer" required>
+          </label>
+
+          <label>
+            <span>Code</span>
+            <input name="code" type="text" placeholder="PRISTINE10" required>
+          </label>
+
+          <div class="grid-two">
+            <label>
+              <span>Discount type</span>
+              <select name="discountType">
+                <option value="percentage">Percentage</option>
+                <option value="amount">Fixed amount</option>
+              </select>
+            </label>
+            <label>
+              <span>Value</span>
+              <input name="value" type="number" min="0.01" step="0.01" required>
+            </label>
+          </div>
+
+          <div class="grid-two">
+            <label>
+              <span>Starts</span>
+              <input name="startsAt" type="datetime-local">
+            </label>
+            <label>
+              <span>Ends</span>
+              <input name="endsAt" type="datetime-local">
+            </label>
+          </div>
+
+          <div class="grid-two">
+            <label>
+              <span>Usage limit</span>
+              <input name="usageLimit" type="number" min="1" step="1" placeholder="No limit">
+            </label>
+            <label>
+              <span>Currency</span>
+              <input name="currencyCode" type="text" maxlength="3" value="INR">
+            </label>
+          </div>
+
+          <label class="check-row">
+            <input name="createActive" type="checkbox" checked>
+            <span>Create as active</span>
+          </label>
+
+          <button class="primary" type="submit">Create coupon</button>
+        </form>
+
+        <section class="panel list-panel" aria-labelledby="listHeading">
+          <div class="section-heading">
+            <h2 id="listHeading">Existing Coupons</h2>
+            <p>Enable or disable codes without editing code.</p>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Title</th>
+                  <th>Status</th>
+                  <th>Dates</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="couponRows">
+                <tr>
+                  <td colspan="5">Loading coupons...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel preorder-cart-panel" aria-labelledby="preorderCartHeading">
+        <div class="section-heading">
+          <h2 id="preorderCartHeading">Auto-Add Cart Items</h2>
+          <p>Configure which sample / reward variant gets auto-added at each subtotal tier. Saved to the Shopify shop metafield <code>pristine.preorder_cart_config</code>.</p>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Min Subtotal</th>
+                <th>Max Subtotal</th>
+                <th>Variant ID</th>
+                <th>Qty</th>
+                <th>Label</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="rewardRows">
+              <tr>
+                <td colspan="6">Loading rewards...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <form class="reward-form" id="rewardForm">
+          <div class="section-heading">
+            <h3>Add tier</h3>
+            <p>Use a blank max to mean "no upper limit".</p>
+          </div>
+
+          <div class="grid-five">
+            <label>
+              <span>Min subtotal</span>
+              <input name="minimumSubtotal" type="number" min="0" step="0.01" value="0" required>
+            </label>
+            <label>
+              <span>Max subtotal</span>
+              <input name="maximumSubtotal" type="number" min="0" step="0.01" placeholder="(no max)">
+            </label>
+            <label>
+              <span>Variant ID</span>
+              <input name="variantId" type="number" min="1" step="1" required>
+            </label>
+            <label>
+              <span>Qty</span>
+              <input name="quantity" type="number" min="1" step="1" value="1" required>
+            </label>
+            <label>
+              <span>Label</span>
+              <input name="label" type="text" placeholder="Sample Selling Plans Ski Wax">
+            </label>
+          </div>
+
+          <div class="row-actions">
+            <button class="primary" type="submit">Add tier</button>
+            <button id="saveRewardsButton" type="button">Save all tiers</button>
+            <button id="reloadRewardsButton" type="button">Reload</button>
+          </div>
+        </form>
+      </section>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </main>
+    <script src="/admin-coupons.js"></script>
+  </body>
+</html>

@@ -159,16 +159,78 @@ export function createApp({
     });
   }));
 
+  const PREORDER_CART_CONFIG_NAMESPACE = 'pristine';
+  const PREORDER_CART_CONFIG_KEY = 'preorder_cart_config';
+  const PREORDER_CART_CONFIG_CACHE_MS = 60_000;
+  let preorderCartConfigCache = null;
+  let preorderCartConfigCacheAt = 0;
+
+  function resetPreorderCartConfigCache() {
+    preorderCartConfigCache = null;
+    preorderCartConfigCacheAt = 0;
+  }
+
+  async function loadPreorderCartOverride() {
+    if (!operations.getShopMetafield) return null;
+    try {
+      const metafield = await operations.getShopMetafield({
+        namespace: PREORDER_CART_CONFIG_NAMESPACE,
+        key: PREORDER_CART_CONFIG_KEY,
+      });
+      if (!metafield?.value) return null;
+      const parsed = typeof metafield.value === 'string' ? JSON.parse(metafield.value) : metafield.value;
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (error) {
+      console.warn('[pristine] failed to load preorder_cart_config metafield', error.message);
+      return null;
+    }
+  }
+
+  async function getActivePreorderCartConfig({ forceRefresh = false } = {}) {
+    const now = Date.now();
+    if (!forceRefresh && preorderCartConfigCache && (now - preorderCartConfigCacheAt) < PREORDER_CART_CONFIG_CACHE_MS) {
+      return preorderCartConfigCache;
+    }
+    const override = await loadPreorderCartOverride();
+    const merged = override ? { ...(config.preorderCart || {}), ...override } : (config.preorderCart || {});
+    preorderCartConfigCache = buildPreorderCartConfig(merged);
+    preorderCartConfigCacheAt = now;
+    return preorderCartConfigCache;
+  }
+
   app.get('/api/preorder-cart/config', asyncHandler(async (req, res) => {
-    res.json({
-      success: true,
-      config: buildPreorderCartConfig(config.preorderCart || {}),
-    });
+    const cfg = await getActivePreorderCartConfig({ forceRefresh: req.query.refresh === '1' });
+    res.json({ success: true, config: cfg });
+  }));
+
+  app.put('/api/preorder-cart/config', requireInternalToken(config), asyncHandler(async (req, res) => {
+    const sanitized = sanitizePreorderCartConfigInput(req.body);
+
+    if (operations.setShopMetafield) {
+      try {
+        await operations.setShopMetafield({
+          namespace: PREORDER_CART_CONFIG_NAMESPACE,
+          key: PREORDER_CART_CONFIG_KEY,
+          value: JSON.stringify(sanitized),
+          type: 'json',
+        });
+      } catch (error) {
+        return res.status(502).json({
+          success: false,
+          error: `Failed to persist shop metafield: ${error.message}`,
+        });
+      }
+    }
+
+    resetPreorderCartConfigCache();
+    const cfg = await getActivePreorderCartConfig({ forceRefresh: true });
+
+    res.json({ success: true, config: cfg, saved: sanitized });
   }));
 
   app.post('/api/preorder-cart/plan', asyncHandler(async (req, res) => {
     assertRequired(req.body.cart, 'cart');
-    const cartConfig = buildPreorderCartConfig(config.preorderCart || {});
+    const cartConfig = await getActivePreorderCartConfig();
     const plan = planPreorderCartMutations(req.body.cart, cartConfig);
 
     res.json({
@@ -272,6 +334,62 @@ function buildPreorderCartConfigFromEnv() {
   } catch (error) {
     throw new Error('PREORDER_CART_CONFIG must be valid JSON');
   }
+}
+
+function sanitizePreorderCartConfigInput(input = {}) {
+  const sampleRewardsInput = Array.isArray(input.sampleRewards) ? input.sampleRewards : [];
+
+  const sampleRewards = sampleRewardsInput
+    .map((reward) => {
+      const variantId = Number(reward?.variantId);
+      const minimumSubtotal = Number(reward?.minimumSubtotal ?? 0);
+      const maxRaw = reward?.maximumSubtotal;
+      const maximumSubtotal = maxRaw === null || maxRaw === undefined || maxRaw === ''
+        ? null
+        : Number(maxRaw);
+      const quantity = Number(reward?.quantity ?? 1);
+      const label = typeof reward?.label === 'string' ? reward.label.trim() : '';
+
+      return {
+        minimumSubtotal: Number.isFinite(minimumSubtotal) ? minimumSubtotal : 0,
+        maximumSubtotal: Number.isFinite(maximumSubtotal) ? maximumSubtotal : null,
+        variantId,
+        quantity: Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1,
+        ...(label ? { label } : {}),
+      };
+    })
+    .filter((reward) => Number.isFinite(reward.variantId) && reward.variantId > 0);
+
+  const explicitVariantIds = Array.isArray(input.sampleVariantIds)
+    ? input.sampleVariantIds.map(Number).filter((id) => Number.isFinite(id) && id > 0)
+    : [];
+  const rewardVariantIds = sampleRewards.map((reward) => reward.variantId);
+  const sampleVariantIds = Array.from(new Set([...explicitVariantIds, ...rewardVariantIds]));
+
+  const freeFixedItems = Array.isArray(input.freeFixedItems)
+    ? input.freeFixedItems
+        .map((item) => ({
+          variantId: Number(item?.variantId),
+          quantity: Number(item?.quantity ?? 1),
+        }))
+        .filter((item) => Number.isFinite(item.variantId) && item.variantId > 0 && item.quantity > 0)
+    : [];
+
+  const travelSizeMappings = Array.isArray(input.travelSizeMappings)
+    ? input.travelSizeMappings
+        .map((mapping) => ({
+          category: String(mapping?.category || '').trim(),
+          fullSizeProductTypes: Array.isArray(mapping?.fullSizeProductTypes)
+            ? mapping.fullSizeProductTypes.map((entry) => String(entry).trim()).filter(Boolean)
+            : [],
+          travelSizeVariantIds: Array.isArray(mapping?.travelSizeVariantIds)
+            ? mapping.travelSizeVariantIds.map(Number).filter((id) => Number.isFinite(id) && id > 0)
+            : [],
+        }))
+        .filter((mapping) => mapping.category && mapping.travelSizeVariantIds.length)
+    : [];
+
+  return { sampleRewards, sampleVariantIds, freeFixedItems, travelSizeMappings };
 }
 
 function buildPreorderCartDebug(cart, cartConfig, plan) {

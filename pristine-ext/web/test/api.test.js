@@ -55,6 +55,14 @@ function createOperationsStub() {
         calls.push({ name: 'updateOrderTrackingMetafield', input });
         return { key: 'tracking_summary' };
       },
+      async getShopMetafield(input) {
+        calls.push({ name: 'getShopMetafield', input });
+        return null;
+      },
+      async setShopMetafield(input) {
+        calls.push({ name: 'setShopMetafield', input });
+        return { id: 'gid://shopify/Metafield/1', namespace: input.namespace, key: input.key, value: input.value };
+      },
     },
   };
 }

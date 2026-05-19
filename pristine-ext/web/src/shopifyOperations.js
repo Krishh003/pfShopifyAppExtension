@@ -4,6 +4,7 @@ import {
   assertMoneyAmount,
   assertRequired,
   normalizeCustomerId,
+  normalizeDiscountCodeNodeId,
   normalizeOrderId,
 } from './validation.js';
 
@@ -19,6 +20,19 @@ const METAFIELDS_SET_MUTATION = `
       userErrors {
         field
         message
+      }
+    }
+  }
+`;
+
+const SHOP_METAFIELD_QUERY = `
+  query ShopMetafield($namespace: String!, $key: String!) {
+    shop {
+      id
+      metafield(namespace: $namespace, key: $key) {
+        id
+        value
+        type
       }
     }
   }
@@ -86,6 +100,117 @@ const DISCOUNT_CODE_BASIC_CREATE_MUTATION = `
   }
 `;
 
+const DISCOUNT_CODES_QUERY = `
+  query DiscountCodes($first: Int!, $query: String) {
+    discountNodes(first: $first, query: $query) {
+      nodes {
+        id
+        discount {
+          ... on DiscountCodeBasic {
+            title
+            summary
+            status
+            startsAt
+            endsAt
+            codes(first: 1) {
+              nodes {
+                code
+              }
+            }
+          }
+          ... on DiscountCodeApp {
+            title
+            status
+            codes(first: 1) {
+              nodes {
+                code
+              }
+            }
+          }
+          ... on DiscountCodeBxgy {
+            title
+            summary
+            status
+            startsAt
+            endsAt
+            codes(first: 1) {
+              nodes {
+                code
+              }
+            }
+          }
+          ... on DiscountCodeFreeShipping {
+            title
+            summary
+            status
+            startsAt
+            endsAt
+            codes(first: 1) {
+              nodes {
+                code
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const DISCOUNT_CODE_ACTIVATE_MUTATION = `
+  mutation DiscountCodeActivate($id: ID!) {
+    discountCodeActivate(id: $id) {
+      codeDiscountNode {
+        id
+        codeDiscount {
+          ... on DiscountCodeBasic {
+            title
+            status
+            startsAt
+            endsAt
+            codes(first: 1) {
+              nodes {
+                code
+              }
+            }
+          }
+        }
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+const DISCOUNT_CODE_DEACTIVATE_MUTATION = `
+  mutation DiscountCodeDeactivate($id: ID!) {
+    discountCodeDeactivate(id: $id) {
+      codeDiscountNode {
+        id
+        codeDiscount {
+          ... on DiscountCodeBasic {
+            title
+            status
+            startsAt
+            endsAt
+            codes(first: 1) {
+              nodes {
+                code
+              }
+            }
+          }
+        }
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
 const DISCOUNT_AUTOMATIC_APP_CREATE_MUTATION = `
   mutation DiscountAutomaticAppCreate($automaticAppDiscount: DiscountAutomaticAppInput!) {
     discountAutomaticAppCreate(automaticAppDiscount: $automaticAppDiscount) {
@@ -128,10 +253,15 @@ export function createShopifyOperations(client) {
     creditStoreCreditAccount: (input) => creditStoreCreditAccount(client, input),
     debitStoreCreditAccount: (input) => debitStoreCreditAccount(client, input),
     createDiscountCode: (input) => createDiscountCode(client, input),
+    listDiscountCodes: (input) => listDiscountCodes(client, input),
+    activateDiscountCode: (input) => activateDiscountCode(client, input),
+    deactivateDiscountCode: (input) => deactivateDiscountCode(client, input),
     createAutomaticAppDiscount: (input) => createAutomaticAppDiscount(client, input),
     createCodeAppDiscount: (input) => createCodeAppDiscount(client, input),
     mirrorCustomerMetafield: (input) => mirrorCustomerMetafield(client, input),
     updateOrderTrackingMetafield: (input) => updateOrderTrackingMetafield(client, input),
+    getShopMetafield: (input) => getShopMetafield(client, input),
+    setShopMetafield: (input) => setShopMetafield(client, input),
   };
 }
 
@@ -196,7 +326,35 @@ export async function createDiscountCode(client, input) {
   };
 
   const data = await client.request(DISCOUNT_CODE_BASIC_CREATE_MUTATION, variables);
-  return unwrapMutation(data, 'discountCodeBasicCreate').codeDiscountNode;
+  return formatDiscountNode(unwrapMutation(data, 'discountCodeBasicCreate').codeDiscountNode);
+}
+
+export async function listDiscountCodes(client, input = {}) {
+  const first = Number(input.first || 50);
+  const data = await client.request(DISCOUNT_CODES_QUERY, {
+    first: Number.isFinite(first) && first > 0 && first <= 250 ? first : 50,
+    query: input.query || null,
+  });
+
+  return (data.discountNodes?.nodes || [])
+    .map(formatDiscountNode)
+    .filter(Boolean);
+}
+
+export async function activateDiscountCode(client, input) {
+  const data = await client.request(DISCOUNT_CODE_ACTIVATE_MUTATION, {
+    id: normalizeDiscountCodeNodeId(input.discountId),
+  });
+
+  return formatDiscountNode(unwrapMutation(data, 'discountCodeActivate').codeDiscountNode);
+}
+
+export async function deactivateDiscountCode(client, input) {
+  const data = await client.request(DISCOUNT_CODE_DEACTIVATE_MUTATION, {
+    id: normalizeDiscountCodeNodeId(input.discountId),
+  });
+
+  return formatDiscountNode(unwrapMutation(data, 'discountCodeDeactivate').codeDiscountNode);
 }
 
 export async function createAutomaticAppDiscount(client, input) {
@@ -242,6 +400,40 @@ export async function updateOrderTrackingMetafield(client, input) {
   });
 }
 
+export async function getShopMetafield(client, { namespace = 'pristine', key } = {}) {
+  assertRequired(key, 'key');
+  const data = await client.request(SHOP_METAFIELD_QUERY, { namespace, key });
+  const root = data?.data || data;
+  return root?.shop?.metafield || null;
+}
+
+export async function setShopMetafield(client, { namespace = 'pristine', key, value, type = 'json' } = {}) {
+  assertRequired(key, 'key');
+  assertRequired(value, 'value');
+
+  const data = await client.request(SHOP_METAFIELD_QUERY, { namespace, key });
+  const root = data?.data || data;
+  const shopId = root?.shop?.id;
+  if (!shopId) {
+    throw new Error('Unable to resolve shop id for metafield write');
+  }
+
+  const variables = {
+    metafields: [
+      {
+        ownerId: shopId,
+        namespace,
+        key,
+        value: String(value),
+        type,
+      },
+    ],
+  };
+
+  const mutationData = await client.request(METAFIELDS_SET_MUTATION, variables);
+  return unwrapMutation(mutationData, 'metafieldsSet').metafields[0];
+}
+
 async function setMetafield(client, { ownerId, key, value, type = 'single_line_text_field' }) {
   assertRequired(key, 'key');
   assertRequired(value, 'value');
@@ -274,4 +466,25 @@ function unwrapMutation(data, mutationName) {
   }
 
   return payload;
+}
+
+function formatDiscountNode(node) {
+  if (!node) {
+    return null;
+  }
+
+  const discount = node.discount || node.codeDiscount;
+  if (!discount) {
+    return { id: node.id };
+  }
+
+  return {
+    id: node.id,
+    title: discount.title || '',
+    code: discount.codes?.nodes?.[0]?.code || '',
+    summary: discount.summary || '',
+    status: discount.status || '',
+    startsAt: discount.startsAt || null,
+    endsAt: discount.endsAt || null,
+  };
 }
