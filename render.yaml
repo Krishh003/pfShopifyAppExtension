@@ -19,7 +19,7 @@ services:
     runtime: docker
     plan: free
     region: singapore
-    branch: main
+    branch: feat/render-deploy-and-cart-fixes
     rootDir: pristine-ext/web
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/preorder-cart/config
