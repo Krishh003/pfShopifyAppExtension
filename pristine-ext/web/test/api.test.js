@@ -20,6 +20,25 @@ function createOperationsStub() {
         calls.push({ name: 'createDiscountCode', input });
         return { id: 'gid://shopify/DiscountCodeNode/1' };
       },
+      async listDiscountCodes(input) {
+        calls.push({ name: 'listDiscountCodes', input });
+        return [
+          {
+            id: 'gid://shopify/DiscountCodeNode/1',
+            title: 'Welcome',
+            code: 'PRISTINE10',
+            status: 'ACTIVE',
+          },
+        ];
+      },
+      async activateDiscountCode(input) {
+        calls.push({ name: 'activateDiscountCode', input });
+        return { id: input.discountId, status: 'ACTIVE' };
+      },
+      async deactivateDiscountCode(input) {
+        calls.push({ name: 'deactivateDiscountCode', input });
+        return { id: input.discountId, status: 'EXPIRED' };
+      },
       async createAutomaticAppDiscount(input) {
         calls.push({ name: 'createAutomaticAppDiscount', input });
         return { discountId: 'gid://shopify/DiscountAutomaticNode/1' };
@@ -161,6 +180,63 @@ test('coupon endpoint creates a native discount and mirrors visible coupon summa
   assert.equal(calls[1].input.key, 'visible_coupons');
 });
 
+test('coupon admin endpoints list and toggle native discounts', async () => {
+  const { operations, calls } = createOperationsStub();
+  const app = createApp({
+    operations,
+    config: {
+      shopDomain: 'pristine.myshopify.com',
+      internalApiToken: 'test-secret',
+    },
+  });
+
+  const headers = { 'X-Pristine-Internal-Token': 'test-secret' };
+  const list = await request(app, 'GET', '/api/coupons?first=10', undefined, headers);
+  const enabled = await request(
+    app,
+    'POST',
+    '/api/coupons/gid%3A%2F%2Fshopify%2FDiscountCodeNode%2F1/enable',
+    {},
+    headers
+  );
+  const disabled = await request(
+    app,
+    'POST',
+    '/api/coupons/gid%3A%2F%2Fshopify%2FDiscountCodeNode%2F1/disable',
+    {},
+    headers
+  );
+
+  assert.equal(list.status, 200);
+  assert.equal(list.payload.discounts[0].code, 'PRISTINE10');
+  assert.equal(enabled.payload.discount.status, 'ACTIVE');
+  assert.equal(disabled.payload.discount.status, 'EXPIRED');
+  assert.equal(calls.at(-3).name, 'listDiscountCodes');
+  assert.equal(calls.at(-2).name, 'activateDiscountCode');
+  assert.equal(calls.at(-1).name, 'deactivateDiscountCode');
+});
+
+test('serves the coupon admin frontend', async () => {
+  const { operations } = createOperationsStub();
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+  const { port } = server.address();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/admin/coupons`);
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(html, /Coupon Codes/);
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
 test('preorder setup endpoint creates automatic and manual app discounts', async () => {
   const { operations, calls } = createOperationsStub();
   const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
@@ -191,6 +267,14 @@ test('preorder setup endpoint passes free item and cart integration config into 
         travelSizeVariantIds: ['gid://shopify/ProductVariant/travel-face'],
       },
     ],
+    sampleRewards: [
+      {
+        minimumSubtotal: 5000,
+        maximumSubtotal: null,
+        variantId: 'gid://shopify/ProductVariant/premium-sample',
+        quantity: 1,
+      },
+    ],
     sampleVariantIds: ['gid://shopify/ProductVariant/sample'],
     autoBenefits: [
       {
@@ -204,6 +288,7 @@ test('preorder setup endpoint passes free item and cart integration config into 
   assert.equal(response.status, 200);
   assert.equal(functionConfig.tiers[2].freeFixedItems[0].quantity, 2);
   assert.equal(functionConfig.travelSizeMappings[0].category, 'Face Care');
+  assert.equal(functionConfig.sampleRewards[0].variantId, 'gid://shopify/ProductVariant/premium-sample');
   assert.equal(functionConfig.sampleVariantIds[0], 'gid://shopify/ProductVariant/sample');
   assert.equal(functionConfig.autoBenefits[0].code, 'FREETRAVEL');
   assert.equal(functionConfig.cartMutation.required, true);
@@ -242,6 +327,49 @@ test('preorder cart plan endpoint returns add and cleanup actions', async () => 
   assert.deepEqual(response.payload.plan.changes, [{ id: 'stale-oil', quantity: 2 }]);
 });
 
+test('preorder cart plan endpoint ignores stale client config', async () => {
+  const { operations } = createOperationsStub();
+  const app = createApp({
+    operations,
+    config: {
+      shopDomain: 'pristine.myshopify.com',
+      preorderCart: {
+        sampleRewards: [
+          { minimumSubtotal: 0, maximumSubtotal: 4999.99, variantId: 101, quantity: 5 },
+          { minimumSubtotal: 5000, maximumSubtotal: null, variantId: 102, quantity: 1 },
+        ],
+        sampleVariantIds: [101, 102],
+        freeFixedItems: [],
+      },
+    },
+  });
+
+  const response = await request(app, 'POST', '/api/preorder-cart/plan?debug=1', {
+    cart: {
+      items_subtotal_price: 600000,
+      items: [],
+    },
+    config: {
+      sampleRewards: [
+        { minimumSubtotal: 5000, maximumSubtotal: null, variantId: 999, quantity: 99 },
+      ],
+      freeFixedItems: [{ variantId: 998, quantity: 1 }],
+    },
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    response.payload.plan.adds.map((add) => ({ id: add.id, quantity: add.quantity })),
+    [{ id: 102, quantity: 1 }]
+  );
+  assert.deepEqual(response.payload.debug.sampleRewards.at(-1), {
+    minimumSubtotal: 5000,
+    maximumSubtotal: null,
+    variantId: 102,
+    quantity: 1,
+  });
+});
+
 test('serves the preorder cart browser integration script', async () => {
   const { operations } = createOperationsStub();
   const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
@@ -256,6 +384,7 @@ test('serves the preorder cart browser integration script', async () => {
 
     assert.equal(response.status, 200);
     assert.match(script, /PristinePreorderCart/);
+    assert.match(script, /gift-card-instant-20260518-v8/);
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

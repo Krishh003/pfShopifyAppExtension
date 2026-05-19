@@ -2,12 +2,8 @@ export const AUTO_PROPERTY = '_pristine_preorder_auto';
 export const REASON_PROPERTY = '_pristine_preorder_reason';
 
 const DEFAULT_SAMPLE_ENTITLEMENTS = [
-  { minimumSubtotal: 0, maximumSubtotal: 999.99, quantity: 1 },
-  { minimumSubtotal: 1000, maximumSubtotal: 1999.99, quantity: 2 },
-  { minimumSubtotal: 2000, maximumSubtotal: 2999.99, quantity: 3 },
-  { minimumSubtotal: 3000, maximumSubtotal: 3999.99, quantity: 4 },
-  { minimumSubtotal: 4000, maximumSubtotal: 4999.99, quantity: 5 },
-  { minimumSubtotal: 5000, maximumSubtotal: null, quantity: 6, additionalQuantityPerSubtotal: 1000 },
+  { minimumSubtotal: 0, maximumSubtotal: 4999.99, quantity: 5 },
+  { minimumSubtotal: 5000, maximumSubtotal: null, quantity: 1 },
 ];
 
 const DEFAULT_TIERS = [
@@ -19,6 +15,7 @@ const DEFAULT_TIERS = [
 export function buildPreorderCartConfig({
   tiers = DEFAULT_TIERS,
   sampleEntitlements = DEFAULT_SAMPLE_ENTITLEMENTS,
+  sampleRewards = [],
   sampleVariantIds = [],
   freeFixedItems = [],
   travelSizeMappings = [],
@@ -29,6 +26,7 @@ export function buildPreorderCartConfig({
       freeFixedItems: tier.code === 'PREORDER40' ? freeFixedItems : tier.freeFixedItems || [],
     })),
     sampleEntitlements,
+    sampleRewards,
     sampleVariantIds,
     travelSizeMappings,
     privateProperties: {
@@ -39,9 +37,9 @@ export function buildPreorderCartConfig({
 }
 
 export function planPreorderCartMutations(cart, config = buildPreorderCartConfig()) {
-  const subtotal = getCartSubtotal(cart);
-  const tier = getTierForSubtotal(subtotal, config.tiers);
   const items = Array.isArray(cart?.items) ? cart.items : [];
+  const subtotal = getCartSubtotal(cart, config, items);
+  const tier = getTierForSubtotal(subtotal, config.tiers);
   const desiredLines = [
     ...desiredSampleLines(subtotal, config),
     ...desiredFixedFreeLines(tier),
@@ -51,7 +49,7 @@ export function planPreorderCartMutations(cart, config = buildPreorderCartConfig
   const changes = [];
 
   for (const desired of desiredLines) {
-    const currentAutoQuantity = countAutoQuantity(items, desired.variantId, desired.autoType);
+    const currentAutoQuantity = countManagedQuantity(items, desired.variantId, desired.autoType, config);
     const missingQuantity = desired.quantity - currentAutoQuantity;
 
     if (missingQuantity > 0) {
@@ -66,25 +64,32 @@ export function planPreorderCartMutations(cart, config = buildPreorderCartConfig
     }
   }
 
+  const remainingDesiredQuantities = buildRemainingDesiredQuantities(desiredLines);
+
   for (const item of items) {
     const autoType = item.properties?.[AUTO_PROPERTY];
+    const managedAutoType = autoType || getManagedVariantAutoType(item, config);
 
-    if (!autoType) {
+    if (!managedAutoType) {
       continue;
     }
 
-    const desiredQuantity = desiredLines
-      .filter((desired) => variantsEqual(desired.variantId, item.variant_id ?? item.id) && desired.autoType === autoType)
-      .reduce((sum, desired) => sum + desired.quantity, 0);
+    const itemQuantity = Number(item.quantity || 0);
+    const desiredKey = getDesiredLineKey(item.variant_id ?? item.id, managedAutoType);
+    const remainingDesiredQuantity = remainingDesiredQuantities.get(desiredKey) || 0;
 
-    if (desiredQuantity <= 0) {
+    if (remainingDesiredQuantity <= 0) {
       changes.push({ id: item.key, quantity: 0 });
       continue;
     }
 
-    if (Number(item.quantity) > desiredQuantity) {
-      changes.push({ id: item.key, quantity: desiredQuantity });
+    if (itemQuantity > remainingDesiredQuantity) {
+      changes.push({ id: item.key, quantity: remainingDesiredQuantity });
+      remainingDesiredQuantities.set(desiredKey, 0);
+      continue;
     }
+
+    remainingDesiredQuantities.set(desiredKey, remainingDesiredQuantity - itemQuantity);
   }
 
   return {
@@ -94,7 +99,49 @@ export function planPreorderCartMutations(cart, config = buildPreorderCartConfig
   };
 }
 
+function buildRemainingDesiredQuantities(desiredLines) {
+  return desiredLines.reduce((quantities, desired) => {
+    const key = getDesiredLineKey(desired.variantId, desired.autoType);
+    quantities.set(key, (quantities.get(key) || 0) + Number(desired.quantity || 0));
+    return quantities;
+  }, new Map());
+}
+
+function getDesiredLineKey(variantId, autoType) {
+  return `${normalizeVariantId(variantId)}:${autoType}`;
+}
+
+function getManagedVariantAutoType(item, config) {
+  const variantId = item.variant_id ?? item.id;
+
+  if (isConfiguredSampleVariant(variantId, config)) {
+    return 'sample';
+  }
+
+  return null;
+}
+
+function isConfiguredSampleVariant(variantId, config) {
+  const sampleRewardVariantIds = Array.isArray(config.sampleRewards)
+    ? config.sampleRewards.map((reward) => reward.variantId)
+    : [];
+  const sampleVariantIds = Array.isArray(config.sampleVariantIds) ? config.sampleVariantIds : [];
+
+  return [...sampleRewardVariantIds, ...sampleVariantIds].some((sampleVariantId) => variantsEqual(sampleVariantId, variantId));
+}
+
 function desiredSampleLines(subtotal, config) {
+  const sampleReward = getSampleReward(subtotal, config.sampleRewards);
+
+  if (sampleReward) {
+    return [{
+      variantId: sampleReward.variantId,
+      quantity: Number(sampleReward.quantity),
+      autoType: 'sample',
+      reason: 'subtotal_entitlement',
+    }];
+  }
+
   const variantId = config.sampleVariantIds?.[0];
   const quantity = getSampleEntitlement(subtotal, config.sampleEntitlements);
 
@@ -108,6 +155,20 @@ function desiredSampleLines(subtotal, config) {
     autoType: 'sample',
     reason: 'subtotal_entitlement',
   }];
+}
+
+function getSampleReward(subtotal, sampleRewards = []) {
+  if (!Number.isFinite(subtotal) || !Array.isArray(sampleRewards)) {
+    return null;
+  }
+
+  return sampleRewards.find((reward) => {
+    const quantity = Number(reward.quantity);
+    const aboveMinimum = subtotal >= Number(reward.minimumSubtotal);
+    const belowMaximum = reward.maximumSubtotal === null || subtotal <= Number(reward.maximumSubtotal);
+
+    return reward.variantId && Number.isFinite(quantity) && quantity > 0 && aboveMinimum && belowMaximum;
+  }) || null;
 }
 
 function desiredFixedFreeLines(tier) {
@@ -162,18 +223,39 @@ function countFullSizeQuantity(items, mapping) {
   }, 0);
 }
 
-function countAutoQuantity(items, variantId, autoType) {
+function countManagedQuantity(items, variantId, autoType, config) {
   return items.reduce((sum, item) => {
     const isSameVariant = variantsEqual(variantId, item.variant_id ?? item.id);
-    const isSameType = item.properties?.[AUTO_PROPERTY] === autoType;
+    const isSameType = (item.properties?.[AUTO_PROPERTY] || getManagedVariantAutoType(item, config)) === autoType;
 
     return isSameVariant && isSameType ? sum + Number(item.quantity || 0) : sum;
   }, 0);
 }
 
-function getCartSubtotal(cart) {
+function getCartSubtotal(cart, config, items = []) {
+  const originalLineSubtotal = items.reduce((sum, item) => {
+    if (isManagedCartLine(item, config)) {
+      return sum;
+    }
+
+    return sum + getOriginalLinePrice(item);
+  }, 0);
+
+  if (originalLineSubtotal > 0) {
+    return originalLineSubtotal / 100;
+  }
+
   const subtotal = Number(cart?.items_subtotal_price ?? cart?.total_price ?? 0);
   return Number.isFinite(subtotal) ? subtotal / 100 : 0;
+}
+
+function isManagedCartLine(item, config) {
+  return Boolean(item.properties?.[AUTO_PROPERTY] || getManagedVariantAutoType(item, config));
+}
+
+function getOriginalLinePrice(item) {
+  const price = Number(item.original_line_price ?? item.final_line_price ?? item.line_price ?? 0);
+  return Number.isFinite(price) ? price : 0;
 }
 
 function getTierForSubtotal(subtotal, tiers = []) {

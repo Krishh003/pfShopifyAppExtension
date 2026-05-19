@@ -102,6 +102,35 @@ export function createApp({
     res.json({ success: true, discount });
   }));
 
+  app.get('/api/coupons', requireInternalToken(config), asyncHandler(async (req, res) => {
+    const discounts = await operations.listDiscountCodes({
+      first: req.query.first,
+      query: req.query.query,
+    });
+
+    res.json({ success: true, discounts });
+  }));
+
+  app.post('/api/coupons/:discountId/enable', requireInternalToken(config), asyncHandler(async (req, res) => {
+    const discount = await operations.activateDiscountCode({
+      discountId: req.params.discountId,
+    });
+
+    res.json({ success: true, discount });
+  }));
+
+  app.post('/api/coupons/:discountId/disable', requireInternalToken(config), asyncHandler(async (req, res) => {
+    const discount = await operations.deactivateDiscountCode({
+      discountId: req.params.discountId,
+    });
+
+    res.json({ success: true, discount });
+  }));
+
+  app.get('/admin/coupons', (req, res) => {
+    res.sendFile(join(__dirname, 'public', 'admin-coupons.html'));
+  });
+
   app.post('/api/preorder-discounts/setup', requireInternalToken(config), asyncHandler(async (req, res) => {
     assertRequired(req.body.functionId, 'functionId');
 
@@ -111,6 +140,7 @@ export function createApp({
       endsAt: req.body.endsAt,
       freeFixedItems: req.body.freeFixedItems,
       travelSizeMappings: req.body.travelSizeMappings,
+      sampleRewards: req.body.sampleRewards,
       sampleVariantIds: req.body.sampleVariantIds,
       autoBenefits: req.body.autoBenefits,
     });
@@ -138,13 +168,13 @@ export function createApp({
 
   app.post('/api/preorder-cart/plan', asyncHandler(async (req, res) => {
     assertRequired(req.body.cart, 'cart');
+    const cartConfig = buildPreorderCartConfig(config.preorderCart || {});
+    const plan = planPreorderCartMutations(req.body.cart, cartConfig);
 
     res.json({
       success: true,
-      plan: planPreorderCartMutations(
-        req.body.cart,
-        buildPreorderCartConfig(req.body.config || config.preorderCart || {})
-      ),
+      plan,
+      debug: req.query.debug === '1' ? buildPreorderCartDebug(req.body.cart, cartConfig, plan) : undefined,
     });
   }));
 
@@ -242,6 +272,24 @@ function buildPreorderCartConfigFromEnv() {
   } catch (error) {
     throw new Error('PREORDER_CART_CONFIG must be valid JSON');
   }
+}
+
+function buildPreorderCartDebug(cart, cartConfig, plan) {
+  return {
+    sampleRewards: cartConfig.sampleRewards,
+    sampleVariantIds: cartConfig.sampleVariantIds,
+    items: (cart.items || []).map((item) => ({
+      key: item.key,
+      title: item.title,
+      variantId: item.variant_id ?? item.id,
+      quantity: item.quantity,
+      auto: item.properties?.['_pristine_preorder_auto'] || null,
+      reason: item.properties?.['_pristine_preorder_reason'] || null,
+      linePrice: item.line_price,
+      originalLinePrice: item.original_line_price,
+    })),
+    plan,
+  };
 }
 
 function createDefaultOperations() {

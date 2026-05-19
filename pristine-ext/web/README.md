@@ -74,30 +74,78 @@ The browser script:
 
 - Fetches the current cart from `/{locale}/cart.js`.
 - Sends the cart to `/api/preorder-cart/plan`.
-- Removes or reduces stale auto-managed lines with `/{locale}/cart/change.js`.
+- Removes or reduces stale auto-managed lines with `/{locale}/cart/update.js` / `/{locale}/cart/change.js`.
 - Adds missing samples/freebies with `/{locale}/cart/add.js`.
 - Marks managed lines with private line item properties:
   - `_pristine_preorder_auto`
   - `_pristine_preorder_reason`
+- Hooks `window.fetch` and `XMLHttpRequest` to detect cart mutations. The URL matcher is the regex `/\/cart\/(add|change|update|clear)(\.js)?$/`, which catches Dawn's drawer `+`/`-` requests that hit `/cart/change` without the `.js` suffix.
+- Exposes `window.PristinePreorderCart.addProductWithRewards(formData, options)` for the patched theme product form. This call:
+  - Opens the cart drawer immediately and injects a loading overlay attached to the `<cart-drawer>` element so it survives `renderContents` innerHTML replacement.
+  - Increments a `pristineAddInflight` counter. The mutation observer and the `settleCart` reconcile loop both bail while the counter is above zero, so background reconciles cannot interleave with the click flow.
+  - Awaits any in-flight `settleCart` promise before mutating, so an older reconcile cannot finish writing stale plan output on top of the click flow's changes.
+  - Computes the projected cart, posts it to `POST /api/preorder-cart/plan`, and applies removals first.
+  - Tries one bundled `/cart/add.js` with `items: [...]` when no item carries `selling_plan`; otherwise falls back to a sequential paid add (with sections) and background reward adds.
+  - On completion the counter is released and a single `reconcile` pass is fired for final consistency.
 
-Example theme install snippet:
+The current script identifies itself with `SCRIPT_VERSION = "gift-card-instant-20260518-v8"`. Bump this constant and the theme `?v=` query whenever the script behaviour changes so browsers refetch the new version.
+
+Example theme install snippet (production):
 
 ```html
-<script src="https://YOUR_APP_DOMAIN/preorder-cart.js" defer></script>
+<script src="https://YOUR_APP_DOMAIN/preorder-cart.js?v=gift-card-instant-20260518-v8" defer></script>
 <script>
   window.addEventListener('DOMContentLoaded', function () {
     window.PristinePreorderCart.init({
-      planUrl: 'https://YOUR_APP_DOMAIN/api/preorder-cart/plan'
+      planUrl: 'https://YOUR_APP_DOMAIN/api/preorder-cart/plan',
+      cartRoot: window.Shopify?.routes?.root || '/'
     });
   });
 </script>
 ```
 
+For local development the `.tmp-theme-live/sections/header-group.json` Custom Liquid block currently points to `http://localhost:8081/preorder-cart.js?v=gift-card-instant-20260518-v8`, which only resolves when the Node backend is running on the same machine as the browser. Swap in a tunnel URL (e.g. `cloudflared tunnel --url http://localhost:8081`) when verifying from a different device.
+
+### Deploying to Fly.io
+
+`fly.toml`, `Dockerfile`, `.dockerignore`, and `scripts/fly-deploy.ps1` are checked in for a Fly.io free-tier deployment. One-time setup:
+
+```powershell
+iwr https://fly.io/install.ps1 -useb | iex     # install flyctl
+flyctl auth signup                              # or `flyctl auth login`
+cd pristine-ext/web
+flyctl launch --no-deploy --copy-config --name pristine-preorder-backend  # pick region "bom" or "sin"
+```
+
+Subsequent deploys:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File pristine-ext\web\scripts\fly-deploy.ps1
+```
+
+The script reads `.env` at runtime, uploads the whitelisted keys via `flyctl secrets set --stage`, then runs `flyctl deploy --remote-only`. After a successful deploy, swap the script and plan URLs in `.tmp-theme-live/sections/header-group.json` to `https://pristine-preorder-backend.fly.dev/...` and push the theme.
+
 Set `PREORDER_CART_CONFIG` as JSON in the backend environment:
 
 ```json
 {
-  "sampleVariantIds": [101],
+  "sampleRewards": [
+    {
+      "minimumSubtotal": 0,
+      "maximumSubtotal": 4999.99,
+      "variantId": 48272374104313,
+      "quantity": 5,
+      "label": "Sample Selling Plans Ski Wax - 9.95"
+    },
+    {
+      "minimumSubtotal": 5000,
+      "maximumSubtotal": null,
+      "variantId": 48272374038777,
+      "quantity": 1,
+      "label": "Selling Plans Ski Wax - 24.95"
+    }
+  ],
+  "sampleVariantIds": [48272374104313, 48272374038777],
   "freeFixedItems": [{ "variantId": 201, "quantity": 2 }],
   "travelSizeMappings": [
     {
@@ -109,7 +157,7 @@ Set `PREORDER_CART_CONFIG` as JSON in the backend environment:
 }
 ```
 
-Use numeric variant IDs for Shopify Ajax cart operations. The Discount Function can still use Shopify GIDs in its own config.
+Use numeric variant IDs for Shopify Ajax cart operations. `sampleRewards` controls what the cart script auto-adds: 5 units of the lower-cost sample below INR 5000, then 1 unit of the premium sample from INR 5000 upward. Keep both sample variants in `sampleVariantIds` so the Discount Function can discount the auto-added sample line when it reaches checkout. The Discount Function can still use Shopify GIDs in its own config.
 
 ## Environment
 
