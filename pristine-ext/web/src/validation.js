@@ -1,4 +1,5 @@
 const CUSTOMER_GID_PREFIX = 'gid://shopify/Customer/';
+const DISCOUNT_CODE_NODE_GID_PREFIX = 'gid://shopify/DiscountCodeNode/';
 const ORDER_GID_PREFIX = 'gid://shopify/Order/';
 
 export function assertRequired(value, fieldName) {
@@ -43,6 +44,12 @@ export function normalizeOrderId(orderId) {
   return value.startsWith('gid://') ? value : `${ORDER_GID_PREFIX}${value}`;
 }
 
+export function normalizeDiscountCodeNodeId(discountId) {
+  assertRequired(discountId, 'discountId');
+  const value = String(discountId);
+  return value.startsWith('gid://') ? value : `${DISCOUNT_CODE_NODE_GID_PREFIX}${value}`;
+}
+
 export function assertCouponValue({ percentage, amount, currencyCode }) {
   if (percentage !== undefined) {
     const value = Number(percentage);
@@ -54,12 +61,15 @@ export function assertCouponValue({ percentage, amount, currencyCode }) {
   }
 
   if (amount !== undefined) {
+    if (currencyCode !== undefined) {
+      assertCurrencyCode(currencyCode);
+    }
+
     return {
       discountAmount: {
         amount: assertMoneyAmount(amount),
         appliesOnEachItem: false,
       },
-      currencyCode: assertCurrencyCode(currencyCode),
     };
   }
 
