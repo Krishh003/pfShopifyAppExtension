@@ -162,13 +162,28 @@ function getSampleReward(subtotal, sampleRewards = []) {
     return null;
   }
 
-  return sampleRewards.find((reward) => {
+  const matches = sampleRewards.filter((reward) => {
     const quantity = Number(reward.quantity);
     const aboveMinimum = subtotal >= Number(reward.minimumSubtotal);
     const belowMaximum = reward.maximumSubtotal === null || subtotal <= Number(reward.maximumSubtotal);
 
     return reward.variantId && Number.isFinite(quantity) && quantity > 0 && aboveMinimum && belowMaximum;
-  }) || null;
+  });
+
+  if (matches.length === 0) {
+    return null;
+  }
+
+  // Most-specific tier wins: highest minimumSubtotal, then narrowest maximumSubtotal.
+  matches.sort((a, b) => {
+    const minDiff = Number(b.minimumSubtotal) - Number(a.minimumSubtotal);
+    if (minDiff !== 0) return minDiff;
+    const aMax = a.maximumSubtotal === null ? Infinity : Number(a.maximumSubtotal);
+    const bMax = b.maximumSubtotal === null ? Infinity : Number(b.maximumSubtotal);
+    return aMax - bMax;
+  });
+
+  return matches[0];
 }
 
 function desiredFixedFreeLines(tier) {

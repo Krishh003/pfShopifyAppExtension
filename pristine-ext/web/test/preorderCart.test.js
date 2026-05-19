@@ -87,6 +87,24 @@ test('adds fixed freebies and matching travel-size lines for qualifying carts', 
   );
 });
 
+test('picks most-specific tier when multiple no-max sample rewards overlap', () => {
+  const rewardConfig = buildPreorderCartConfig({
+    sampleRewards: [
+      { minimumSubtotal: 0, maximumSubtotal: 4999.99, variantId: 101, quantity: 5 },
+      { minimumSubtotal: 5000, maximumSubtotal: null, variantId: 102, quantity: 1 },
+      { minimumSubtotal: 6000, maximumSubtotal: null, variantId: 103, quantity: 1 },
+    ],
+  });
+
+  const low = planPreorderCartMutations(cart({ subtotal: 4500, items: [] }), rewardConfig);
+  const mid = planPreorderCartMutations(cart({ subtotal: 5500, items: [] }), rewardConfig);
+  const high = planPreorderCartMutations(cart({ subtotal: 6500, items: [] }), rewardConfig);
+
+  assert.deepEqual(low.adds.map((a) => a.id), [101]);
+  assert.deepEqual(mid.adds.map((a) => a.id), [102]);
+  assert.deepEqual(high.adds.map((a) => a.id), [103]);
+});
+
 test('selects lower-cost samples below 5000 and premium samples from 5000', () => {
   const rewardConfig = buildPreorderCartConfig({
     sampleRewards: [
