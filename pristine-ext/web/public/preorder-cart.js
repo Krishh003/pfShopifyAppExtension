@@ -4,7 +4,7 @@
     cartRoot: window.Shopify?.routes?.root || '/',
     once: false,
   };
-  const SCRIPT_VERSION = 'gift-card-instant-20260518-v8';
+  const SCRIPT_VERSION = 'gift-card-instant-20260518-v9';
   const CART_MUTATION_PATHS = ['/cart/add.js', '/cart/change.js', '/cart/update.js', '/cart/clear.js'];
   const CART_MUTATION_REGEX = /\/cart\/(add|change|update|clear)(\.js)?$/;
   const SETTLE_DELAYS = [100, 250, 500, 1000, 2000];
@@ -32,28 +32,45 @@
     }
     const plan = planResponse.plan || { adds: [], changes: [] };
     let changed = false;
+    let lastSections = null;
 
     const removals = (plan.changes || []).filter((change) => Number(change.quantity) === 0);
     const nonRemovalChanges = (plan.changes || []).filter((change) => Number(change.quantity) !== 0);
+    const sectionIds = getCartSectionIds();
+    const sectionsList = sectionIds.length ? sectionIds : null;
+    const sectionsUrl = window.location.pathname;
 
     if (removals.length) {
-      await postJson(joinCartUrl(settings.cartRoot, 'cart/update.js'), {
+      const removeResp = await postJson(joinCartUrl(settings.cartRoot, 'cart/update.js'), {
         updates: Object.fromEntries(removals.map((change) => [change.id, 0])),
+        ...(sectionsList ? { sections: sectionsList, sections_url: sectionsUrl } : {}),
       });
+      if (removeResp?.sections) lastSections = removeResp.sections;
       changed = true;
     }
 
     for (const change of nonRemovalChanges) {
-      await postJson(joinCartUrl(settings.cartRoot, 'cart/change.js'), change);
+      const changeResp = await postJson(joinCartUrl(settings.cartRoot, 'cart/change.js'), {
+        ...change,
+        ...(sectionsList ? { sections: sectionsList, sections_url: sectionsUrl } : {}),
+      });
+      if (changeResp?.sections) lastSections = changeResp.sections;
       changed = true;
     }
 
     for (const add of plan.adds || []) {
-      await postJson(joinCartUrl(settings.cartRoot, 'cart/add.js'), add);
+      const addResp = await postJson(joinCartUrl(settings.cartRoot, 'cart/add.js'), {
+        ...add,
+        ...(sectionsList ? { sections: sectionsList, sections_url: sectionsUrl } : {}),
+      });
+      if (addResp?.sections) lastSections = addResp.sections;
       changed = true;
     }
 
     if (changed) {
+      if (lastSections && options?.renderSections !== false) {
+        try { await renderCartSections(lastSections); } catch (_) { /* ignore */ }
+      }
       window.dispatchEvent(new CustomEvent('pristine:preorder-cart:updated', { detail: { plan } }));
     }
 

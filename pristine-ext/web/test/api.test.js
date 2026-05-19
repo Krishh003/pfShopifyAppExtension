@@ -384,7 +384,7 @@ test('serves the preorder cart browser integration script', async () => {
 
     assert.equal(response.status, 200);
     assert.match(script, /PristinePreorderCart/);
-    assert.match(script, /gift-card-instant-20260518-v8/);
+    assert.match(script, /gift-card-instant-20260518-v9/);
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
