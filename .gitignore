@@ -130,6 +130,14 @@ dist
 .shopify/
 .shopify-cli/
 
+# Rust build output
+target/
+**/target/
+
+# Local working artifacts (pulled live theme snapshot, agent worktrees)
+.tmp-theme-live/
+.claude/worktrees/
+
 # OS specific files
 .DS_Store
 .DS_Store?
