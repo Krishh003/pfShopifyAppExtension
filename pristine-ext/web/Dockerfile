@@ -1,4 +1,3 @@
-# syntax = docker/dockerfile:1
 # Pristine Forests backend container for Fly.io / generic container runtimes.
 
 ARG NODE_VERSION=22-alpine
