@@ -21,13 +21,20 @@
       <section class="panel auth-panel" aria-labelledby="authHeading">
         <div>
           <h2 id="authHeading">Access</h2>
-          <p>Use the internal admin token configured for this backend.</p>
+          <p id="authStatus">Sign in with your admin credentials.</p>
         </div>
-        <label>
-          <span>Internal token</span>
-          <input id="tokenInput" type="password" autocomplete="off">
-        </label>
-        <button id="saveTokenButton" type="button">Save token</button>
+        <form id="loginForm" class="login-form">
+          <label>
+            <span>Username</span>
+            <input id="loginUser" type="text" autocomplete="username" required>
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="loginPass" type="password" autocomplete="current-password" required>
+          </label>
+          <button class="primary" type="submit" id="loginButton">Sign in</button>
+        </form>
+        <button id="logoutButton" type="button" hidden>Log out</button>
       </section>
 
       <section class="workspace">

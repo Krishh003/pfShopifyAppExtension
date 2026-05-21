@@ -1,22 +1,86 @@
-const tokenInput = document.querySelector('#tokenInput');
-const saveTokenButton = document.querySelector('#saveTokenButton');
 const refreshButton = document.querySelector('#refreshButton');
 const couponForm = document.querySelector('#couponForm');
 const couponRows = document.querySelector('#couponRows');
 const toast = document.querySelector('#toast');
 
-const tokenStorageKey = 'pristine.internalApiToken';
+const loginForm = document.querySelector('#loginForm');
+const loginUser = document.querySelector('#loginUser');
+const loginPass = document.querySelector('#loginPass');
+const logoutButton = document.querySelector('#logoutButton');
+const authStatus = document.querySelector('#authStatus');
 
-tokenInput.value = localStorage.getItem(tokenStorageKey) || '';
+// Session-based auth: data loaders register here and run only once authenticated.
+const adminDataLoaders = [];
+let isAuthed = false;
+function registerAdminLoader(fn) {
+  adminDataLoaders.push(fn);
+}
 
-saveTokenButton.addEventListener('click', () => {
-  localStorage.setItem(tokenStorageKey, tokenInput.value.trim());
-  showToast('Token saved for this browser.');
-  loadCoupons();
+async function refreshAuth() {
+  let me = { authenticated: false, loginEnabled: true };
+  try {
+    const res = await fetch('/api/admin/me', { credentials: 'same-origin' });
+    me = await res.json();
+  } catch (_) {
+    /* backend unreachable */
+  }
+  applyAuthState(me);
+}
+
+function applyAuthState(me) {
+  isAuthed = Boolean(me.authenticated);
+  if (isAuthed) {
+    loginForm.hidden = true;
+    logoutButton.hidden = false;
+    authStatus.textContent = `Signed in as ${me.user?.username || 'admin'}.`;
+    authStatus.classList.add('signed-in');
+    adminDataLoaders.forEach((fn) => {
+      try { fn(); } catch (_) { /* ignore */ }
+    });
+  } else {
+    loginForm.hidden = false;
+    logoutButton.hidden = true;
+    authStatus.classList.remove('signed-in');
+    authStatus.textContent = me.loginEnabled === false
+      ? 'Admin login is not configured on this server.'
+      : 'Sign in with your admin credentials.';
+  }
+}
+
+loginForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    setBusy(loginForm, true);
+    const res = await fetch('/api/admin/login', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: loginUser.value, password: loginPass.value }),
+    });
+    const payload = await res.json();
+    if (!res.ok) throw new Error(payload.error || 'Login failed');
+    loginPass.value = '';
+    showToast('Signed in.');
+    await refreshAuth();
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setBusy(loginForm, false);
+  }
+});
+
+logoutButton.addEventListener('click', async () => {
+  try {
+    await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
+  } catch (_) {
+    /* ignore */
+  }
+  showToast('Signed out.');
+  applyAuthState({ authenticated: false });
 });
 
 refreshButton.addEventListener('click', () => {
-  loadCoupons();
+  if (isAuthed) loadCoupons();
 });
 
 couponForm.addEventListener('submit', async (event) => {
@@ -89,7 +153,7 @@ couponRows.addEventListener('click', async (event) => {
   }
 });
 
-loadCoupons();
+registerAdminLoader(loadCoupons);
 
 const rewardRows = document.querySelector('#rewardRows');
 const rewardForm = document.querySelector('#rewardForm');
@@ -158,7 +222,7 @@ if (rewardForm && rewardRows && saveRewardsButton && reloadRewardsButton) {
 
   reloadRewardsButton.addEventListener('click', () => loadRewards());
 
-  loadRewards();
+  registerAdminLoader(loadRewards);
 }
 
 async function loadRewards() {
@@ -241,18 +305,20 @@ function renderCoupons(discounts) {
 }
 
 async function apiRequest(path, options = {}) {
-  const token = tokenInput.value.trim() || localStorage.getItem(tokenStorageKey) || '';
   const response = await fetch(path, {
     ...options,
+    credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { 'X-Pristine-Internal-Token': token } : {}),
       ...(options.headers || {}),
     },
   });
   const payload = await response.json();
 
   if (!response.ok) {
+    if (response.status === 401 || response.status === 503) {
+      applyAuthState({ authenticated: false });
+    }
     throw new Error(payload.error || `Request failed with HTTP ${response.status}`);
   }
 
@@ -918,5 +984,8 @@ if (publishPreorderButton) {
     }
   }
 
-  loadPreorderConfig();
+  registerAdminLoader(loadPreorderConfig);
 }
+
+// Kick off auth check last so all loaders are registered before it may run them.
+refreshAuth();

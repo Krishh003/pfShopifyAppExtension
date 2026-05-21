@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createApp, isCliEntrypoint } from '../index.js';
+import { hashPassword } from '../src/adminAuth.js';
 
 function createOperationsStub() {
   const calls = [];
@@ -106,7 +107,7 @@ async function request(app, method, path, body, headers = {}) {
   try {
     const response = await fetch(`http://127.0.0.1:${port}${path}`, {
       method,
-      headers: { 'Content-Type': 'application/json', ...headers },
+      headers: { 'Content-Type': 'application/json', 'X-Pristine-Internal-Token': 'test-token', ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
 
@@ -121,7 +122,7 @@ async function request(app, method, path, body, headers = {}) {
 
 test('health endpoint reports backend readiness', async () => {
   const { operations } = createOperationsStub();
-  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com', internalApiToken: 'test-token' } });
 
   const response = await request(app, 'GET', '/status');
 
@@ -139,7 +140,7 @@ test('detects Windows CLI entrypoint paths', () => {
 
 test('credit endpoint uses real store credit operation and mirrors display state', async () => {
   const { operations, calls } = createOperationsStub();
-  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com', internalApiToken: 'test-token' } });
 
   const response = await request(app, 'POST', '/api/store-credit/credit', {
     customerId: '42',
@@ -167,7 +168,7 @@ test('admin mutation endpoints require the configured internal API token', async
     customerId: '42',
     amount: '10.00',
     currencyCode: 'INR',
-  });
+  }, { 'X-Pristine-Internal-Token': 'wrong-token' });
   const allowed = await request(app, 'POST', '/api/store-credit/credit', {
     customerId: '42',
     amount: '10.00',
@@ -175,8 +176,64 @@ test('admin mutation endpoints require the configured internal API token', async
   }, { 'X-Pristine-Internal-Token': 'test-secret' });
 
   assert.equal(denied.status, 401);
-  assert.equal(denied.payload.error, 'Internal API token is required');
+  assert.equal(denied.payload.error, 'Authentication required.');
   assert.equal(allowed.status, 200);
+});
+
+test('admin login issues a session cookie that authorizes protected endpoints', async () => {
+  const { operations } = createOperationsStub();
+  const app = createApp({
+    operations,
+    config: {
+      shopDomain: 'pristine.myshopify.com',
+      adminCredentials: JSON.stringify([{ username: 'ops1', hash: hashPassword('pw123') }]),
+      sessionSecret: 'unit-secret',
+    },
+  });
+
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+  const post = (path, body, headers = {}) => fetch(`${base}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
+  const credit = { customerId: '42', amount: '10.00', currencyCode: 'INR' };
+
+  try {
+    const bad = await post('/api/admin/login', { username: 'ops1', password: 'nope' });
+    assert.equal(bad.status, 401);
+
+    const good = await post('/api/admin/login', { username: 'ops1', password: 'pw123' });
+    assert.equal(good.status, 200);
+    const setCookie = good.headers.get('set-cookie');
+    assert.match(setCookie, /pf_admin_session=/);
+    const cookie = setCookie.split(';')[0];
+
+    const authed = await post('/api/store-credit/credit', credit, { Cookie: cookie });
+    assert.equal(authed.status, 200);
+
+    const noCookie = await post('/api/store-credit/credit', credit);
+    assert.equal(noCookie.status, 401);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test('admin mutation endpoints fail closed when no auth is configured', async () => {
+  const { operations } = createOperationsStub();
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+
+  const response = await request(app, 'POST', '/api/store-credit/credit', {
+    customerId: '42',
+    amount: '10.00',
+    currencyCode: 'INR',
+  }, { 'X-Pristine-Internal-Token': '' });
+
+  assert.equal(response.status, 503);
+  assert.match(response.payload.error, /not configured/);
 });
 
 test('preorder cart endpoints remain public for storefront use', async () => {
@@ -185,6 +242,7 @@ test('preorder cart endpoints remain public for storefront use', async () => {
     operations,
     config: {
       shopDomain: 'pristine.myshopify.com',
+      internalApiToken: 'test-token',
       internalApiToken: 'test-secret',
       preorderCart: { sampleVariantIds: [101] },
     },
@@ -204,7 +262,7 @@ test('preorder cart endpoints remain public for storefront use', async () => {
 
 test('coupon endpoint creates a native discount and mirrors visible coupon summary', async () => {
   const { operations, calls } = createOperationsStub();
-  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com', internalApiToken: 'test-token' } });
 
   const response = await request(app, 'POST', '/api/coupons/create', {
     customerId: '42',
@@ -225,6 +283,7 @@ test('coupon admin endpoints list and toggle native discounts', async () => {
     operations,
     config: {
       shopDomain: 'pristine.myshopify.com',
+      internalApiToken: 'test-token',
       internalApiToken: 'test-secret',
     },
   });
@@ -257,7 +316,7 @@ test('coupon admin endpoints list and toggle native discounts', async () => {
 
 test('serves the coupon admin frontend', async () => {
   const { operations } = createOperationsStub();
-  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com', internalApiToken: 'test-token' } });
 
   const server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
@@ -278,7 +337,7 @@ test('serves the coupon admin frontend', async () => {
 
 test('preorder setup endpoint creates automatic and manual app discounts', async () => {
   const { operations, calls } = createOperationsStub();
-  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com', internalApiToken: 'test-token' } });
 
   const response = await request(app, 'POST', '/api/preorder-discounts/setup', {
     functionId: '11111111-1111-1111-1111-111111111111',
@@ -294,7 +353,7 @@ test('preorder setup endpoint creates automatic and manual app discounts', async
 
 test('preorder setup endpoint passes free item and cart integration config into function setup', async () => {
   const { operations, calls } = createOperationsStub();
-  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com', internalApiToken: 'test-token' } });
 
   const response = await request(app, 'POST', '/api/preorder-discounts/setup', {
     functionId: '11111111-1111-1111-1111-111111111111',
@@ -339,6 +398,7 @@ test('preorder cart plan endpoint returns add and cleanup actions', async () => 
     operations,
     config: {
       shopDomain: 'pristine.myshopify.com',
+      internalApiToken: 'test-token',
       preorderCart: {
         sampleVariantIds: [101],
         freeFixedItems: [{ variantId: 201, quantity: 2 }],
@@ -372,6 +432,7 @@ test('preorder cart plan endpoint ignores stale client config', async () => {
     operations,
     config: {
       shopDomain: 'pristine.myshopify.com',
+      internalApiToken: 'test-token',
       preorderCart: {
         sampleRewards: [
           { minimumSubtotal: 0, maximumSubtotal: 4999.99, variantId: 101, quantity: 5 },
@@ -411,7 +472,7 @@ test('preorder cart plan endpoint ignores stale client config', async () => {
 
 test('serves the preorder cart browser integration script', async () => {
   const { operations } = createOperationsStub();
-  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com', internalApiToken: 'test-token' } });
 
   const server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
@@ -433,7 +494,7 @@ test('serves the preorder cart browser integration script', async () => {
 
 test('tracking endpoint writes order tracking summary metafield', async () => {
   const { operations, calls } = createOperationsStub();
-  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com', internalApiToken: 'test-token' } });
 
   const response = await request(app, 'POST', '/api/orders/tracking', {
     orderId: '99',
@@ -446,7 +507,7 @@ test('tracking endpoint writes order tracking summary metafield', async () => {
 
 test('prepaid intent endpoint records intent instead of mutating prices directly', async () => {
   const { operations, calls } = createOperationsStub();
-  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com', internalApiToken: 'test-token' } });
 
   const response = await request(app, 'POST', '/api/prepaid-conversion/intent', {
     customerId: '42',
@@ -460,7 +521,7 @@ test('prepaid intent endpoint records intent instead of mutating prices directly
 
 test('endpoints reject missing required fields', async () => {
   const { operations } = createOperationsStub();
-  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com', internalApiToken: 'test-token' } });
 
   const response = await request(app, 'POST', '/api/store-credit/credit', {
     amount: '10.00',
@@ -473,7 +534,7 @@ test('endpoints reject missing required fields', async () => {
 
 test('preorder config publish updates discount metafields (GIDs) and shop cart config (numeric)', async () => {
   const { operations, calls } = createOperationsStub();
-  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com', internalApiToken: 'test-token' } });
 
   const response = await request(app, 'POST', '/api/preorder/config', {
     tiers: [
@@ -520,7 +581,7 @@ test('preorder cart config PUT merges over existing instead of replacing', async
       sampleRewards: [],
     }),
   });
-  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com', internalApiToken: 'test-token' } });
 
   const response = await request(app, 'PUT', '/api/preorder-cart/config', {
     sampleRewards: [{ minimumSubtotal: 0, maximumSubtotal: null, variantId: 777, quantity: 2 }],
@@ -542,7 +603,7 @@ test('preorder cart config PUT merges over existing instead of replacing', async
 
 test('preorder config GET returns canonical config with numeric variant ids', async () => {
   const { operations } = createOperationsStub();
-  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com', internalApiToken: 'test-token' } });
 
   const response = await request(app, 'GET', '/api/preorder/config');
 

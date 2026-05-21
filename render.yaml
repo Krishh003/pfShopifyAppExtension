@@ -41,3 +41,14 @@ services:
         sync: false
       - key: PREORDER_CART_CONFIG
         sync: false
+      # Admin panel auth (set in the Render dashboard, never in the repo).
+      # ADMIN_CREDENTIALS: JSON array of {username, hash}. Generate each hash with
+      #   node scripts/hash-password.mjs '<password>' '<username>'
+      # SESSION_SECRET: long random string used to sign session cookies.
+      # INTERNAL_API_TOKEN: optional shared token for automation/CI (bypasses login).
+      - key: ADMIN_CREDENTIALS
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: INTERNAL_API_TOKEN
+        sync: false

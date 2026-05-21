@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { createAdminGraphqlClient, DEFAULT_API_VERSION } from './src/adminClient.js';
+import { createAdminAuth } from './src/adminAuth.js';
 import { buildPreorderCartConfig, planPreorderCartMutations } from './src/preorderCart.js';
 import { buildPreorderDiscountSetup, buildPreorderFunctionConfiguration, buildPreorderVisibleCoupons, PREORDER_OFFER_CONFIG } from './src/preorderOffers.js';
 import { createShopifyOperations } from './src/shopifyOperations.js';
@@ -21,13 +22,51 @@ export function createApp({
     apiVersion: process.env.API_VERSION || DEFAULT_API_VERSION,
     preorderCart: buildPreorderCartConfigFromEnv(),
     internalApiToken: process.env.INTERNAL_API_TOKEN,
+    adminCredentials: process.env.ADMIN_CREDENTIALS,
+    sessionSecret: process.env.SESSION_SECRET,
   },
 } = {}) {
   const app = express();
 
+  const adminAuth = createAdminAuth({
+    credentials: config.adminCredentials,
+    sessionSecret: config.sessionSecret,
+    internalToken: config.internalApiToken,
+    secureCookie: process.env.NODE_ENV === 'production',
+  });
+
   app.use(express.json());
   app.use(cors({ origin: '*' }));
   app.use(express.static(join(__dirname, 'public')));
+
+  app.post('/api/admin/login', asyncHandler(async (req, res) => {
+    if (!adminAuth.hasSessionAuth) {
+      res.status(503).json({ success: false, error: 'Admin login is not configured on this server.' });
+      return;
+    }
+    const user = adminAuth.login(req.body.username, req.body.password);
+    if (!user) {
+      res.status(401).json({ success: false, error: 'Invalid username or password.' });
+      return;
+    }
+    res.setHeader('Set-Cookie', adminAuth.issueCookie(user));
+    res.json({ success: true, user: { username: user.username } });
+  }));
+
+  app.post('/api/admin/logout', (req, res) => {
+    res.setHeader('Set-Cookie', adminAuth.clearCookie());
+    res.json({ success: true });
+  });
+
+  app.get('/api/admin/me', (req, res) => {
+    const user = adminAuth.identify(req);
+    res.json({
+      authenticated: Boolean(user),
+      user: user ? { username: user.username } : null,
+      loginEnabled: adminAuth.hasSessionAuth,
+      configured: adminAuth.configured,
+    });
+  });
 
   app.get('/status', (req, res) => {
     res.json({
@@ -37,7 +76,7 @@ export function createApp({
     });
   });
 
-  app.post('/api/store-credit/credit', requireInternalToken(config), asyncHandler(async (req, res) => {
+  app.post('/api/store-credit/credit', adminAuth.middleware, asyncHandler(async (req, res) => {
     assertRequired(req.body.customerId, 'customerId');
     assertRequired(req.body.amount, 'amount');
     assertRequired(req.body.currencyCode, 'currencyCode');
@@ -57,7 +96,7 @@ export function createApp({
     res.json({ success: true, transaction });
   }));
 
-  app.post('/api/store-credit/debit', requireInternalToken(config), asyncHandler(async (req, res) => {
+  app.post('/api/store-credit/debit', adminAuth.middleware, asyncHandler(async (req, res) => {
     assertRequired(req.body.customerId, 'customerId');
     assertRequired(req.body.amount, 'amount');
     assertRequired(req.body.currencyCode, 'currencyCode');
@@ -77,7 +116,7 @@ export function createApp({
     res.json({ success: true, transaction });
   }));
 
-  app.post('/api/coupons/create', requireInternalToken(config), asyncHandler(async (req, res) => {
+  app.post('/api/coupons/create', adminAuth.middleware, asyncHandler(async (req, res) => {
     assertRequired(req.body.title, 'title');
     assertRequired(req.body.code, 'code');
 
@@ -102,7 +141,7 @@ export function createApp({
     res.json({ success: true, discount });
   }));
 
-  app.get('/api/coupons', requireInternalToken(config), asyncHandler(async (req, res) => {
+  app.get('/api/coupons', adminAuth.middleware, asyncHandler(async (req, res) => {
     const discounts = await operations.listDiscountCodes({
       first: req.query.first,
       query: req.query.query,
@@ -111,7 +150,7 @@ export function createApp({
     res.json({ success: true, discounts });
   }));
 
-  app.post('/api/coupons/:discountId/enable', requireInternalToken(config), asyncHandler(async (req, res) => {
+  app.post('/api/coupons/:discountId/enable', adminAuth.middleware, asyncHandler(async (req, res) => {
     const discount = await operations.activateDiscountCode({
       discountId: req.params.discountId,
     });
@@ -119,7 +158,7 @@ export function createApp({
     res.json({ success: true, discount });
   }));
 
-  app.post('/api/coupons/:discountId/disable', requireInternalToken(config), asyncHandler(async (req, res) => {
+  app.post('/api/coupons/:discountId/disable', adminAuth.middleware, asyncHandler(async (req, res) => {
     const discount = await operations.deactivateDiscountCode({
       discountId: req.params.discountId,
     });
@@ -131,7 +170,7 @@ export function createApp({
     res.sendFile(join(__dirname, 'public', 'admin-coupons.html'));
   });
 
-  app.post('/api/preorder-discounts/setup', requireInternalToken(config), asyncHandler(async (req, res) => {
+  app.post('/api/preorder-discounts/setup', adminAuth.middleware, asyncHandler(async (req, res) => {
     assertRequired(req.body.functionId, 'functionId');
 
     const setup = buildPreorderDiscountSetup({
@@ -203,7 +242,7 @@ export function createApp({
     res.json({ success: true, config: cfg });
   }));
 
-  app.put('/api/preorder-cart/config', requireInternalToken(config), asyncHandler(async (req, res) => {
+  app.put('/api/preorder-cart/config', adminAuth.middleware, asyncHandler(async (req, res) => {
     const sanitized = sanitizePreorderCartConfigInput(req.body);
 
     // Merge over the existing override so this endpoint only touches the fields it was sent.
@@ -267,7 +306,7 @@ export function createApp({
     });
   }));
 
-  app.post('/api/preorder/config', requireInternalToken(config), asyncHandler(async (req, res) => {
+  app.post('/api/preorder/config', adminAuth.middleware, asyncHandler(async (req, res) => {
     if (!operations.listPreorderAppDiscounts || !operations.setAppDiscountFunctionConfig) {
       return res.status(501).json({ success: false, error: 'Preorder config operations are not available' });
     }
@@ -323,7 +362,7 @@ export function createApp({
     res.json({ success: true, updatedDiscounts: updated, config: buildCanonicalPreorderConfig({ tiers: input.tiers, sampleEntitlements: input.sampleEntitlements }, cartConfig) });
   }));
 
-  app.post('/api/orders/tracking', requireInternalToken(config), asyncHandler(async (req, res) => {
+  app.post('/api/orders/tracking', adminAuth.middleware, asyncHandler(async (req, res) => {
     assertRequired(req.body.orderId, 'orderId');
     assertRequired(req.body.tracking, 'tracking');
 
@@ -335,7 +374,7 @@ export function createApp({
     res.json({ success: true, metafield });
   }));
 
-  app.post('/api/prepaid-conversion/intent', requireInternalToken(config), asyncHandler(async (req, res) => {
+  app.post('/api/prepaid-conversion/intent', adminAuth.middleware, asyncHandler(async (req, res) => {
     assertRequired(req.body.customerId, 'customerId');
     assertRequired(req.body.orderId, 'orderId');
 
@@ -357,7 +396,7 @@ export function createApp({
     });
   }));
 
-  app.post('/api/credits/update', requireInternalToken(config), asyncHandler(async (req, res) => {
+  app.post('/api/credits/update', adminAuth.middleware, asyncHandler(async (req, res) => {
     const transaction = await operations.creditStoreCreditAccount({
       customerId: req.body.customerId,
       amount: req.body.amount,
@@ -367,7 +406,7 @@ export function createApp({
     res.json({ success: true, transaction, deprecated: '/api/store-credit/credit' });
   }));
 
-  app.post('/api/coupons/update', requireInternalToken(config), asyncHandler(async (req, res) => {
+  app.post('/api/coupons/update', adminAuth.middleware, asyncHandler(async (req, res) => {
     const metafield = await operations.mirrorCustomerMetafield({
       customerId: req.body.customerId,
       key: 'visible_coupons',
@@ -391,21 +430,6 @@ export function createApp({
   return app;
 }
 
-function requireInternalToken(config) {
-  return (req, res, next) => {
-    if (!config.internalApiToken) {
-      next();
-      return;
-    }
-
-    if (req.get('X-Pristine-Internal-Token') !== config.internalApiToken) {
-      res.status(401).json({ error: 'Internal API token is required' });
-      return;
-    }
-
-    next();
-  };
-}
 
 function buildPreorderCartConfigFromEnv() {
   if (!process.env.PREORDER_CART_CONFIG) {

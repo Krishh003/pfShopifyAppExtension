@@ -91,6 +91,22 @@ h2 {
   font-size: 0.92rem;
 }
 
+.login-form {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.login-form label {
+  flex: 1 1 160px;
+}
+
+#authStatus.signed-in {
+  color: var(--forest);
+  font-weight: 700;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(300px, 390px) 1fr;
