@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Pristine Forests Coupon Admin</title>
-    <link rel="stylesheet" href="/admin-coupons.css">
+    <link rel="stylesheet" href="admin-coupons.css">
   </head>
   <body>
     <main class="shell">
@@ -31,65 +31,67 @@
       </section>
 
       <section class="workspace">
-        <form class="panel coupon-form" id="couponForm">
-          <div class="section-heading">
-            <h2>Create Coupon</h2>
-            <p>Creates a Shopify-native discount code.</p>
-          </div>
+        <div class="sidebar-panels">
+          <form class="panel coupon-form" id="couponForm">
+            <div class="section-heading">
+              <h2>Create Coupon</h2>
+              <p>Creates a Shopify-native discount code.</p>
+            </div>
 
-          <label>
-            <span>Title</span>
-            <input name="title" type="text" placeholder="Welcome offer" required>
-          </label>
-
-          <label>
-            <span>Code</span>
-            <input name="code" type="text" placeholder="PRISTINE10" required>
-          </label>
-
-          <div class="grid-two">
             <label>
-              <span>Discount type</span>
-              <select name="discountType">
-                <option value="percentage">Percentage</option>
-                <option value="amount">Fixed amount</option>
-              </select>
+              <span>Title</span>
+              <input name="title" type="text" placeholder="Welcome offer" required>
             </label>
-            <label>
-              <span>Value</span>
-              <input name="value" type="number" min="0.01" step="0.01" required>
-            </label>
-          </div>
 
-          <div class="grid-two">
             <label>
-              <span>Starts</span>
-              <input name="startsAt" type="datetime-local">
+              <span>Code</span>
+              <input name="code" type="text" placeholder="PRISTINE10" required>
             </label>
-            <label>
-              <span>Ends</span>
-              <input name="endsAt" type="datetime-local">
-            </label>
-          </div>
 
-          <div class="grid-two">
-            <label>
-              <span>Usage limit</span>
-              <input name="usageLimit" type="number" min="1" step="1" placeholder="No limit">
-            </label>
-            <label>
-              <span>Currency</span>
-              <input name="currencyCode" type="text" maxlength="3" value="INR">
-            </label>
-          </div>
+            <div class="grid-two">
+              <label>
+                <span>Discount type</span>
+                <select name="discountType">
+                  <option value="percentage">Percentage</option>
+                  <option value="amount">Fixed amount</option>
+                </select>
+              </label>
+              <label>
+                <span>Value</span>
+                <input name="value" type="number" min="0.01" step="0.01" required>
+              </label>
+            </div>
 
-          <label class="check-row">
-            <input name="createActive" type="checkbox" checked>
-            <span>Create as active</span>
-          </label>
+            <div class="grid-two">
+              <label>
+                <span>Starts</span>
+                <input name="startsAt" type="datetime-local">
+              </label>
+              <label>
+                <span>Ends</span>
+                <input name="endsAt" type="datetime-local">
+              </label>
+            </div>
 
-          <button class="primary" type="submit">Create coupon</button>
-        </form>
+            <div class="grid-two">
+              <label>
+                <span>Usage limit</span>
+                <input name="usageLimit" type="number" min="1" step="1" placeholder="No limit">
+              </label>
+              <label>
+                <span>Currency</span>
+                <input name="currencyCode" type="text" maxlength="3" value="INR">
+              </label>
+            </div>
+
+            <label class="check-row">
+              <input name="createActive" type="checkbox" checked>
+              <span>Create as active</span>
+            </label>
+
+            <button class="primary" type="submit">Create coupon</button>
+          </form>
+        </div>
 
         <section class="panel list-panel" aria-labelledby="listHeading">
           <div class="section-heading">
@@ -116,6 +118,61 @@
             </table>
           </div>
         </section>
+
+        <section class="panel bulk-panel" id="bulkPanel">
+          <div class="section-heading">
+            <div class="actions-row">
+              <h2>Bulk Actions</h2>
+              <button id="downloadTemplateButton" class="btn-secondary" type="button" title="Download CSV template">
+                <span class="icon">↓</span> Template
+              </button>
+            </div>
+            <p>Upload a CSV template to create coupons in bulk.</p>
+          </div>
+
+          <div class="bulk-layout">
+            <div class="drop-zone" id="dropZone">
+              <span class="drop-zone-icon">📁</span>
+              <span class="drop-zone-text">Drag CSV template here or <strong>browse</strong></span>
+              <input type="file" id="csvFileInput" accept=".csv">
+            </div>
+
+            <details class="help-block" open>
+              <summary>CSV format &amp; available options</summary>
+              <div class="help-body">
+                <p class="help-note">Download the template, fill one coupon per row, then drag the file in. The header row is required; columns are matched by name so their order does not matter. Each row is validated in the preview before import &mdash; invalid rows are flagged and skipped.</p>
+                <dl>
+                  <dt>Code <span class="help-pill req">required</span></dt>
+                  <dd>The code customers type at checkout. Saved in uppercase. e.g. <code>PRISTINE20</code></dd>
+
+                  <dt>Title <span class="help-pill req">required</span></dt>
+                  <dd>Internal name shown in the admin coupon list.</dd>
+
+                  <dt>Discount Type <span class="help-pill req">required</span></dt>
+                  <dd><code>Percentage</code> (or <code>Percent</code>) or <code>Amount</code> (or <code>Fixed</code> / <code>Fixed Amount</code>). Any other value rejects the row.</dd>
+
+                  <dt>Value <span class="help-pill req">required</span></dt>
+                  <dd>A positive number. Percent off for Percentage, money off for Amount.</dd>
+
+                  <dt>Starts At <span class="help-pill opt">optional</span></dt>
+                  <dd>ISO date, e.g. <code>2026-12-31T23:59:59Z</code>. Blank = starts immediately.</dd>
+
+                  <dt>Ends At <span class="help-pill opt">optional</span></dt>
+                  <dd>ISO date. Blank = never expires.</dd>
+
+                  <dt>Usage Limit <span class="help-pill opt">optional</span></dt>
+                  <dd>Positive whole number of total redemptions. Blank = unlimited.</dd>
+
+                  <dt>Currency <span class="help-pill opt">optional</span></dt>
+                  <dd>3-letter code, defaults to <code>INR</code>. Only affects Amount discounts.</dd>
+
+                  <dt>Status <span class="help-pill opt">optional</span></dt>
+                  <dd><code>Inactive</code>, <code>Disabled</code> or <code>False</code> = inactive. Blank or anything else = active.</dd>
+                </dl>
+              </div>
+            </details>
+          </div>
+        </section>
       </section>
 
       <section class="panel preorder-cart-panel" aria-labelledby="preorderCartHeading">
@@ -123,6 +180,31 @@
           <h2 id="preorderCartHeading">Auto-Add Cart Items</h2>
           <p>Configure which sample / reward variant gets auto-added at each subtotal tier. Saved to the Shopify shop metafield <code>pristine.preorder_cart_config</code>.</p>
         </div>
+
+        <details class="help-block" open>
+          <summary>How tiers work &amp; available options</summary>
+          <div class="help-body">
+            <p class="help-note">Each tier auto-adds <strong>one</strong> variant to the cart when the cart subtotal falls inside its range. Add a row per tier, then click <strong>Save all tiers</strong> to publish &mdash; nothing goes live until you save.</p>
+            <dl>
+              <dt>Min subtotal <span class="help-pill req">required</span></dt>
+              <dd>Lowest subtotal (inclusive) that activates this tier. Use <code>0</code> to start from an empty cart.</dd>
+
+              <dt>Max subtotal <span class="help-pill opt">optional</span></dt>
+              <dd>Highest subtotal (inclusive). Leave blank for "no upper limit".</dd>
+
+              <dt>Variant ID <span class="help-pill req">required</span></dt>
+              <dd>Numeric Shopify variant ID of the item to add. Must be greater than 0.</dd>
+
+              <dt>Qty <span class="help-pill req">required</span></dt>
+              <dd>Whole number, at least 1. Defaults to 1.</dd>
+
+              <dt>Label <span class="help-pill opt">optional</span></dt>
+              <dd>Friendly name for your own reference. Omitted if left blank.</dd>
+            </dl>
+            <p class="help-note"><strong>Overlap rule:</strong> a tier matches when subtotal &ge; min and (max is blank or subtotal &le; max). If several tiers match, the most specific one wins &mdash; highest min first, then the narrowest max range.</p>
+            <p class="help-note"><strong>What you cannot do:</strong> only one reward variant per tier (no multiple variants at the same tier), matching is by subtotal only (not item count or SKU), and edits take effect only after <strong>Save all tiers</strong>.</p>
+          </div>
+        </details>
 
         <div class="table-wrap">
           <table>
@@ -153,23 +235,23 @@
           <div class="grid-five">
             <label>
               <span>Min subtotal</span>
-              <input name="minimumSubtotal" type="number" min="0" step="0.01" value="0" required>
+              <input name="minimumSubtotal" type="number" min="0" step="0.01" value="0" required title="Lowest cart subtotal (inclusive) that activates this tier. Use 0 to start from an empty cart.">
             </label>
             <label>
               <span>Max subtotal</span>
-              <input name="maximumSubtotal" type="number" min="0" step="0.01" placeholder="(no max)">
+              <input name="maximumSubtotal" type="number" min="0" step="0.01" placeholder="(no max)" title="Highest cart subtotal (inclusive). Leave blank for no upper limit.">
             </label>
             <label>
               <span>Variant ID</span>
-              <input name="variantId" type="number" min="1" step="1" required>
+              <input name="variantId" type="number" min="1" step="1" required title="Numeric Shopify variant ID of the item to auto-add. Must be greater than 0.">
             </label>
             <label>
               <span>Qty</span>
-              <input name="quantity" type="number" min="1" step="1" value="1" required>
+              <input name="quantity" type="number" min="1" step="1" value="1" required title="How many units to add. Whole number, at least 1.">
             </label>
             <label>
               <span>Label</span>
-              <input name="label" type="text" placeholder="Sample Selling Plans Ski Wax">
+              <input name="label" type="text" placeholder="Sample Selling Plans Ski Wax" title="Friendly name for your own reference. Optional.">
             </label>
           </div>
 
@@ -181,8 +263,157 @@
         </form>
       </section>
 
+      <section class="panel preorder-config-panel" aria-labelledby="preorderConfigHeading">
+        <div class="section-heading">
+          <h2 id="preorderConfigHeading">Preorder Freebies &amp; Discount Tiers</h2>
+          <p>Configure the full preorder promotion. <strong>Publish</strong> updates the discount-function config on every preorder discount <em>and</em> the cart auto-add config in one step. Variant IDs are numeric Shopify variant IDs.</p>
+        </div>
+
+        <div class="config-block">
+          <h3>Discount tiers</h3>
+          <p class="help-note">Percentage off by cart subtotal band. Reuse a code (e.g. PREORDER30) across bands; the function matches the first band a subtotal falls into. Essential oils for the top tier are set in their own block below.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Code</th><th>Min</th><th>Max</th><th>%</th><th>Free travel qty</th><th>Action</th></tr></thead>
+              <tbody id="tierRows"><tr><td colspan="6">Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div class="grid-five">
+            <label><span>Code</span><input id="tierCode" type="text" placeholder="PREORDER30"></label>
+            <label><span>Min subtotal</span><input id="tierMin" type="number" min="0" step="0.01" value="0"></label>
+            <label><span>Max subtotal</span><input id="tierMax" type="number" min="0" step="0.01" placeholder="(no max)"></label>
+            <label><span>Percentage</span><input id="tierPct" type="number" min="0" max="100" step="1"></label>
+            <label><span>Free travel qty</span><input id="tierTravel" type="number" min="0" step="1" placeholder="0"></label>
+          </div>
+          <div class="row-actions"><button class="primary" type="button" id="addTierButton">Add tier</button></div>
+        </div>
+
+        <div class="config-block">
+          <h3>Sample entitlement curve</h3>
+          <p class="help-note">How many free samples by subtotal. For the spec "1 + 1 per ₹1000" use a single row: min 0, no max, base qty 1, +qty per ₹ = 1000.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Min</th><th>Max</th><th>Base qty</th><th>+qty per ₹</th><th>Action</th></tr></thead>
+              <tbody id="entRows"><tr><td colspan="5">Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div class="grid-five">
+            <label><span>Min subtotal</span><input id="entMin" type="number" min="0" step="0.01" value="0"></label>
+            <label><span>Max subtotal</span><input id="entMax" type="number" min="0" step="0.01" placeholder="(no max)"></label>
+            <label><span>Base qty</span><input id="entQty" type="number" min="0" step="1" value="1"></label>
+            <label><span>+qty per ₹</span><input id="entStep" type="number" min="0" step="1" placeholder="(none)"></label>
+            <label aria-hidden="true"><span>&nbsp;</span><span></span></label>
+          </div>
+          <div class="row-actions"><button class="primary" type="button" id="addEntButton">Add row</button></div>
+        </div>
+
+        <div class="config-block">
+          <h3>Sample category mappings</h3>
+          <p class="help-note">Which sample variant auto-adds for each full-size category in the cart. The total sample qty (from the curve) is split across the matching categories present.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Full-size product types</th><th>Sample variant ID</th><th>Action</th></tr></thead>
+              <tbody id="sampleCatRows"><tr><td colspan="3">Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div class="grid-two">
+            <label><span>Full-size product types (comma-separated)</span><input id="scTypes" type="text" placeholder="Body Oil, Essential Oil"></label>
+            <label><span>Sample variant ID</span><input id="scVariant" type="number" min="1" step="1"></label>
+          </div>
+          <div class="row-actions"><button class="primary" type="button" id="addSampleCatButton">Add mapping</button></div>
+        </div>
+
+        <div class="config-block">
+          <h3>Travel-size mappings</h3>
+          <p class="help-note">Which travel-size variant is free per full-size. Below ₹3000 it must match the category; at ₹3000+ any category qualifies.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Category</th><th>Full-size types</th><th>Travel variant IDs</th><th>Action</th></tr></thead>
+              <tbody id="travelRows"><tr><td colspan="4">Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div class="grid-three">
+            <label><span>Category label</span><input id="tvCategory" type="text" placeholder="All"></label>
+            <label><span>Full-size types (comma)</span><input id="tvTypes" type="text" placeholder="Body Oil, Face Mist"></label>
+            <label><span>Travel variant IDs (comma)</span><input id="tvVariants" type="text" placeholder="48426706731257"></label>
+          </div>
+          <div class="row-actions"><button class="primary" type="button" id="addTravelButton">Add mapping</button></div>
+        </div>
+
+        <div class="config-block">
+          <h3>Essential oils (top-tier free items)</h3>
+          <p class="help-note">Fixed free items added on the PREORDER40 tier (≥₹5000). Add one row per oil.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Variant ID</th><th>Qty</th><th>Action</th></tr></thead>
+              <tbody id="oilRows"><tr><td colspan="3">Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div class="grid-two">
+            <label><span>Variant ID</span><input id="oilVariant" type="number" min="1" step="1"></label>
+            <label><span>Qty</span><input id="oilQty" type="number" min="1" step="1" value="1"></label>
+          </div>
+          <div class="row-actions"><button class="primary" type="button" id="addOilButton">Add oil</button></div>
+        </div>
+
+        <div class="row-actions publish-row">
+          <button class="primary" type="button" id="publishPreorderButton">Publish preorder config</button>
+          <button type="button" id="reloadPreorderButton">Reload</button>
+        </div>
+      </section>
+
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
     </main>
-    <script src="/admin-coupons.js"></script>
+
+    <!-- Bulk Upload Preview Modal -->
+    <div class="modal-overlay" id="csvPreviewModal">
+      <div class="modal-container">
+        <div class="modal-header">
+          <h3 id="modalTitle">Import Coupons Preview</h3>
+          <button class="modal-close" id="modalCloseButton" type="button" aria-label="Close modal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="reward-meta" id="modalSummaryText">Parsing coupons...</p>
+          
+          <div class="preview-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Title</th>
+                  <th>Type</th>
+                  <th>Value</th>
+                  <th>Status</th>
+                  <th>Validation</th>
+                </tr>
+              </thead>
+              <tbody id="previewRows">
+                <!-- Dynamically populated rows -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Dynamic Import Progress Section -->
+          <div class="progress-container" id="importProgressContainer">
+            <div class="progress-info">
+              <span id="progressStatusText">Importing coupons...</span>
+              <span id="progressPercentText">0%</span>
+            </div>
+            <div class="progress-bar-wrap">
+              <div class="progress-bar" id="importProgressBar"></div>
+            </div>
+            <div class="import-log" id="importLog">
+              <!-- Sequential log entries will be appended here -->
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="modalCancelButton" type="button">Cancel</button>
+          <button class="primary" id="modalImportButton" type="button">Confirm & Import</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="admin-coupons.js"></script>
   </body>
 </html>

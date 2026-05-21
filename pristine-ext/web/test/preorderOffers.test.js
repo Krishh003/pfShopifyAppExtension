@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   buildPreorderDiscountSetup,
+  buildPreorderFunctionConfiguration,
   buildPreorderVisibleCoupons,
   getPreorderTierForSubtotal,
 } from '../src/preorderOffers.js';
@@ -78,4 +79,27 @@ test('publishes free item, travel-size, sample, and cleanup contracts in functio
   ]);
   assert.equal(config.cartMutation.required, true);
   assert.match(config.cartMutation.reason, /cannot add or remove cart lines/);
+});
+
+test('builds function configuration with tier and freebie overrides', () => {
+  const { functionConfiguration, byCode } = buildPreorderFunctionConfiguration({
+    tiers: [
+      { code: 'PREORDER50', minimumSubtotal: 0, maximumSubtotal: null, percentage: 50 },
+      { code: 'PREORDER40', minimumSubtotal: 5000, maximumSubtotal: null, percentage: 40, freeTravelSizeQuantity: 1 },
+    ],
+    sampleEntitlements: [{ minimumSubtotal: 0, maximumSubtotal: null, quantity: 2, additionalQuantityPerSubtotal: 500 }],
+    freeFixedItems: [{ variantId: 'gid://shopify/ProductVariant/oil-x', quantity: 1 }],
+    sampleVariantIds: ['gid://shopify/ProductVariant/sample-x'],
+    travelSizeMappings: [{ category: 'All', fullSizeProductTypes: ['Body Oil'], travelSizeVariantIds: ['gid://shopify/ProductVariant/travel-x'] }],
+  });
+
+  assert.equal(functionConfiguration.tiers[0].code, 'PREORDER50');
+  assert.equal(functionConfiguration.tiers[0].percentage, 50);
+  // freeFixedItems attach only to PREORDER40
+  assert.deepEqual(functionConfiguration.tiers[0].freeFixedItems, []);
+  assert.equal(functionConfiguration.tiers.find((tier) => tier.code === 'PREORDER40').freeFixedItems[0].variantId, 'gid://shopify/ProductVariant/oil-x');
+  assert.equal(functionConfiguration.sampleEntitlements[0].additionalQuantityPerSubtotal, 500);
+  assert.equal(functionConfiguration.sampleVariantIds[0], 'gid://shopify/ProductVariant/sample-x');
+  // FREETRAVEL override still present and forced
+  assert.equal(JSON.parse(byCode.get('FREETRAVEL')).mode, 'manual_override');
 });

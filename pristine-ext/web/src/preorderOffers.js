@@ -111,6 +111,54 @@ export function buildPreorderVisibleCoupons(config = PREORDER_OFFER_CONFIG) {
   ];
 }
 
+// Canonical builder for the function-configuration metafield. Returns the raw config object,
+// the automatic-discount JSON value, and a per-code map (with mode/forcedCode) so the same config
+// can drive both discount creation and in-place metafield updates from the admin UI.
+export function buildPreorderFunctionConfiguration({
+  freeFixedItems = [],
+  travelSizeMappings = [],
+  sampleRewards = [],
+  sampleVariantIds = [],
+  autoBenefits = PREORDER_OFFER_CONFIG.autoBenefits,
+  tiers = PREORDER_OFFER_CONFIG.tiers,
+  sampleEntitlements = PREORDER_OFFER_CONFIG.sampleEntitlements,
+  manualOverrides = PREORDER_OFFER_CONFIG.manualOverrides,
+} = {}) {
+  const effectiveTiers = tiers.map((tier) => ({
+    ...tier,
+    freeFixedItems: tier.code === 'PREORDER40' ? freeFixedItems : (tier.freeFixedItems || []),
+  }));
+  const functionConfiguration = {
+    version: 1,
+    currencyCode: PREORDER_OFFER_CONFIG.currencyCode,
+    tiers: effectiveTiers,
+    overrideCodes: PREORDER_OFFER_CONFIG.overrideCodes,
+    manualOverrideBenefits: Object.fromEntries(
+      manualOverrides.map((override) => [override.code, override.benefit || {}])
+    ),
+    travelSizeMappings,
+    sampleEntitlements,
+    sampleRewards,
+    sampleVariantIds,
+    autoBenefits,
+    cartMutation: PREORDER_OFFER_CONFIG.cartMutation,
+  };
+  const visibleCoupons = buildPreorderVisibleCoupons({ ...PREORDER_OFFER_CONFIG, tiers, manualOverrides });
+  const byCode = new Map(
+    visibleCoupons.map((coupon) => [
+      coupon.code,
+      JSON.stringify({ ...functionConfiguration, mode: coupon.type, forcedCode: coupon.code }),
+    ])
+  );
+
+  return {
+    functionConfiguration,
+    base: JSON.stringify(functionConfiguration),
+    byCode,
+    visibleCoupons,
+  };
+}
+
 export function buildPreorderDiscountSetup(input = {}) {
   return buildPreorderDiscountSetupWithConfig(input);
 }
@@ -124,40 +172,32 @@ export function buildPreorderDiscountSetupWithConfig({
   sampleRewards = [],
   sampleVariantIds = [],
   autoBenefits = [],
+  tiers = PREORDER_OFFER_CONFIG.tiers,
+  sampleEntitlements = PREORDER_OFFER_CONFIG.sampleEntitlements,
+  manualOverrides = PREORDER_OFFER_CONFIG.manualOverrides,
 } = {}) {
   if (!functionId) {
     throw new Error('functionId is required');
   }
 
   const activeStartsAt = startsAt || new Date().toISOString();
-  const tiers = PREORDER_OFFER_CONFIG.tiers.map((tier) => ({
-    ...tier,
-    freeFixedItems: tier.code === 'PREORDER40' ? freeFixedItems : tier.freeFixedItems,
-  }));
-  const functionConfiguration = {
-    version: 1,
-    currencyCode: PREORDER_OFFER_CONFIG.currencyCode,
-    tiers,
-    overrideCodes: PREORDER_OFFER_CONFIG.overrideCodes,
-    manualOverrideBenefits: Object.fromEntries(
-      PREORDER_OFFER_CONFIG.manualOverrides.map((override) => [override.code, override.benefit || {}])
-    ),
+  const { base, visibleCoupons, byCode } = buildPreorderFunctionConfiguration({
+    freeFixedItems,
     travelSizeMappings,
-    sampleEntitlements: PREORDER_OFFER_CONFIG.sampleEntitlements,
     sampleRewards,
     sampleVariantIds,
     autoBenefits,
-    cartMutation: PREORDER_OFFER_CONFIG.cartMutation,
+    tiers,
+    sampleEntitlements,
+    manualOverrides,
+  });
+  const metafield = {
+    namespace: PREORDER_OFFER_CONFIG.metafieldNamespace,
+    key: PREORDER_OFFER_CONFIG.metafieldKey,
+    type: 'json',
+    value: base,
   };
-  const metafields = [
-    {
-      namespace: PREORDER_OFFER_CONFIG.metafieldNamespace,
-      key: PREORDER_OFFER_CONFIG.metafieldKey,
-      type: 'json',
-      value: JSON.stringify(functionConfiguration),
-    },
-  ];
-  const base = {
+  const baseDiscount = {
     functionId,
     startsAt: activeStartsAt,
     ...(endsAt ? { endsAt } : {}),
@@ -166,30 +206,21 @@ export function buildPreorderDiscountSetupWithConfig({
       productDiscounts: false,
       shippingDiscounts: false,
     },
-    metafields,
+    metafields: [metafield],
   };
 
   return {
     automatic: {
-      ...base,
+      ...baseDiscount,
       title: 'Pristine Preorder Best Value',
       discountClasses: ['ORDER', 'PRODUCT'],
     },
-    codes: buildPreorderVisibleCoupons().map((coupon) => ({
-      ...base,
+    codes: visibleCoupons.map((coupon) => ({
+      ...baseDiscount,
       code: coupon.code,
       title: coupon.title,
       discountClasses: coupon.type === 'manual_override' ? ['PRODUCT'] : ['ORDER', 'PRODUCT'],
-      metafields: [
-        {
-          ...metafields[0],
-          value: JSON.stringify({
-            ...functionConfiguration,
-            mode: coupon.type,
-            forcedCode: coupon.code,
-          }),
-        },
-      ],
+      metafields: [{ ...metafield, value: byCode.get(coupon.code) }],
     })),
   };
 }

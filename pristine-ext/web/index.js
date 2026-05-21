@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { createAdminGraphqlClient, DEFAULT_API_VERSION } from './src/adminClient.js';
 import { buildPreorderCartConfig, planPreorderCartMutations } from './src/preorderCart.js';
-import { buildPreorderDiscountSetup, buildPreorderVisibleCoupons } from './src/preorderOffers.js';
+import { buildPreorderDiscountSetup, buildPreorderFunctionConfiguration, buildPreorderVisibleCoupons, PREORDER_OFFER_CONFIG } from './src/preorderOffers.js';
 import { createShopifyOperations } from './src/shopifyOperations.js';
 import { ValidationError, assertRequired } from './src/validation.js';
 
@@ -240,6 +240,77 @@ export function createApp({
     });
   }));
 
+  app.get('/api/preorder/config', asyncHandler(async (req, res) => {
+    if (!operations.listPreorderAppDiscounts) {
+      return res.json({ success: true, config: emptyPreorderConfig() });
+    }
+    const discounts = await operations.listPreorderAppDiscounts();
+    const automatic = discounts.find((discount) => discount.kind === 'automatic') || discounts[0] || null;
+    const cartOverride = await loadPreorderCartOverride();
+
+    res.json({
+      success: true,
+      config: buildCanonicalPreorderConfig(automatic?.config, cartOverride),
+      discounts: discounts.map((discount) => ({ id: discount.id, kind: discount.kind, title: discount.title, code: discount.code })),
+    });
+  }));
+
+  app.post('/api/preorder/config', requireInternalToken(config), asyncHandler(async (req, res) => {
+    if (!operations.listPreorderAppDiscounts || !operations.setAppDiscountFunctionConfig) {
+      return res.status(501).json({ success: false, error: 'Preorder config operations are not available' });
+    }
+
+    const input = sanitizePreorderConfigInput(req.body);
+
+    // Function-config side (GIDs): drives the discount function.
+    const { base, byCode } = buildPreorderFunctionConfiguration({
+      tiers: input.tiers,
+      sampleEntitlements: input.sampleEntitlements,
+      travelSizeMappings: input.travelSizeMappings.map((mapping) => ({
+        ...mapping,
+        travelSizeVariantIds: mapping.travelSizeVariantIds.map(toVariantGid),
+      })),
+      freeFixedItems: input.freeFixedItems.map((item) => ({ ...item, variantId: toVariantGid(item.variantId) })),
+      sampleVariantIds: input.sampleVariantIds.map(toVariantGid),
+      sampleRewards: [],
+    });
+
+    const discounts = await operations.listPreorderAppDiscounts();
+    const updated = [];
+    for (const discount of discounts) {
+      if (discount.kind === 'automatic') {
+        await operations.setAppDiscountFunctionConfig({ ownerId: discount.id, value: base });
+        updated.push({ id: discount.id, kind: 'automatic' });
+      } else if (discount.code && byCode.has(discount.code)) {
+        await operations.setAppDiscountFunctionConfig({ ownerId: discount.id, value: byCode.get(discount.code) });
+        updated.push({ id: discount.id, code: discount.code });
+      }
+    }
+
+    // Cart-config side (numeric IDs): drives the auto-add planner. Preserve existing sampleRewards.
+    const existingCartConfig = (await loadPreorderCartOverride()) || {};
+    const cartConfig = {
+      ...existingCartConfig,
+      tiers: input.tiers,
+      sampleEntitlements: input.sampleEntitlements,
+      sampleVariantIds: input.sampleVariantIds,
+      sampleCategoryMappings: input.sampleCategoryMappings,
+      travelSizeMappings: input.travelSizeMappings,
+      freeFixedItems: input.freeFixedItems,
+    };
+    if (operations.setShopMetafield) {
+      await operations.setShopMetafield({
+        namespace: PREORDER_CART_CONFIG_NAMESPACE,
+        key: PREORDER_CART_CONFIG_KEY,
+        value: JSON.stringify(cartConfig),
+        type: 'json',
+      });
+    }
+    resetPreorderCartConfigCache();
+
+    res.json({ success: true, updatedDiscounts: updated, config: buildCanonicalPreorderConfig({ tiers: input.tiers, sampleEntitlements: input.sampleEntitlements }, cartConfig) });
+  }));
+
   app.post('/api/orders/tracking', requireInternalToken(config), asyncHandler(async (req, res) => {
     assertRequired(req.body.orderId, 'orderId');
     assertRequired(req.body.tracking, 'tracking');
@@ -402,6 +473,143 @@ function sanitizePreorderCartConfigInput(input = {}) {
     : [];
 
   return { sampleRewards, sampleVariantIds, sampleCategoryMappings, freeFixedItems, travelSizeMappings };
+}
+
+function toVariantGid(id) {
+  const value = String(id ?? '').trim();
+  if (value.startsWith('gid://')) {
+    return value;
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? `gid://shopify/ProductVariant/${numeric}` : value;
+}
+
+function toNumericVariantId(value) {
+  const text = String(value ?? '');
+  const match = text.match(/ProductVariant\/(\d+)/);
+  if (match) {
+    return Number(match[1]);
+  }
+  const numeric = Number(text);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function sanitizePreorderTier(tier) {
+  const code = String(tier?.code || '').trim().toUpperCase();
+  if (!code) {
+    return null;
+  }
+  const minimum = Number(tier?.minimumSubtotal ?? 0);
+  const maxRaw = tier?.maximumSubtotal;
+  const maximum = maxRaw === null || maxRaw === undefined || maxRaw === '' ? null : Number(maxRaw);
+  const percentageRaw = tier?.percentage;
+  const percentage = percentageRaw === null || percentageRaw === undefined || percentageRaw === '' ? undefined : Number(percentageRaw);
+  const travel = Number(tier?.freeTravelSizeQuantity);
+  const sanitized = {
+    code,
+    minimumSubtotal: Number.isFinite(minimum) ? minimum : 0,
+    maximumSubtotal: Number.isFinite(maximum) ? maximum : null,
+  };
+  if (Number.isFinite(percentage)) {
+    sanitized.percentage = percentage;
+  }
+  if (Number.isFinite(travel) && travel > 0) {
+    sanitized.freeTravelSizeQuantity = travel;
+  }
+  return sanitized;
+}
+
+function sanitizeSampleEntitlement(entry) {
+  const minimum = Number(entry?.minimumSubtotal ?? 0);
+  const maxRaw = entry?.maximumSubtotal;
+  const maximum = maxRaw === null || maxRaw === undefined || maxRaw === '' ? null : Number(maxRaw);
+  const quantity = Number(entry?.quantity ?? 0);
+  const stepRaw = entry?.additionalQuantityPerSubtotal;
+  const step = stepRaw === null || stepRaw === undefined || stepRaw === '' ? undefined : Number(stepRaw);
+  const sanitized = {
+    minimumSubtotal: Number.isFinite(minimum) ? minimum : 0,
+    maximumSubtotal: Number.isFinite(maximum) ? maximum : null,
+    quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 0,
+  };
+  if (Number.isFinite(step) && step > 0) {
+    sanitized.additionalQuantityPerSubtotal = step;
+  }
+  return sanitized;
+}
+
+function sanitizePreorderConfigInput(input = {}) {
+  const cart = sanitizePreorderCartConfigInput(input);
+  const tiersInput = Array.isArray(input.tiers) ? input.tiers.map(sanitizePreorderTier).filter(Boolean) : [];
+  const entitlementsInput = Array.isArray(input.sampleEntitlements) ? input.sampleEntitlements.map(sanitizeSampleEntitlement) : [];
+
+  return {
+    tiers: tiersInput.length ? tiersInput : PREORDER_OFFER_CONFIG.tiers,
+    sampleEntitlements: entitlementsInput.length ? entitlementsInput : PREORDER_OFFER_CONFIG.sampleEntitlements,
+    sampleCategoryMappings: cart.sampleCategoryMappings,
+    travelSizeMappings: cart.travelSizeMappings,
+    freeFixedItems: cart.freeFixedItems,
+    sampleVariantIds: cart.sampleVariantIds,
+    sampleRewards: cart.sampleRewards,
+  };
+}
+
+function stripTierFixedItems(tier) {
+  const sanitized = {
+    code: tier.code,
+    minimumSubtotal: tier.minimumSubtotal ?? 0,
+    maximumSubtotal: tier.maximumSubtotal ?? null,
+  };
+  if (tier.percentage !== undefined && tier.percentage !== null) {
+    sanitized.percentage = tier.percentage;
+  }
+  if (tier.freeTravelSizeQuantity) {
+    sanitized.freeTravelSizeQuantity = tier.freeTravelSizeQuantity;
+  }
+  return sanitized;
+}
+
+function emptyPreorderConfig() {
+  return {
+    tiers: PREORDER_OFFER_CONFIG.tiers.map(stripTierFixedItems),
+    sampleEntitlements: PREORDER_OFFER_CONFIG.sampleEntitlements,
+    sampleCategoryMappings: [],
+    travelSizeMappings: [],
+    freeFixedItems: [],
+    sampleVariantIds: [],
+    sampleRewards: [],
+  };
+}
+
+function buildCanonicalPreorderConfig(functionConfig, cartOverride) {
+  const fc = functionConfig || {};
+  const co = cartOverride || {};
+  const fcTiers = Array.isArray(fc.tiers) ? fc.tiers : [];
+  const tiersSource = Array.isArray(co.tiers) && co.tiers.length ? co.tiers : fcTiers;
+  const preorder40 = fcTiers.find((tier) => tier.code === 'PREORDER40');
+
+  const freeFixedSource = co.freeFixedItems && co.freeFixedItems.length ? co.freeFixedItems : (preorder40?.freeFixedItems || []);
+  const travelSource = co.travelSizeMappings && co.travelSizeMappings.length ? co.travelSizeMappings : (fc.travelSizeMappings || []);
+  const sampleVariantSource = co.sampleVariantIds && co.sampleVariantIds.length ? co.sampleVariantIds : (fc.sampleVariantIds || []);
+
+  return {
+    tiers: tiersSource.map(stripTierFixedItems),
+    sampleEntitlements: co.sampleEntitlements && co.sampleEntitlements.length ? co.sampleEntitlements : (fc.sampleEntitlements || []),
+    sampleCategoryMappings: (co.sampleCategoryMappings || []).map((mapping) => ({
+      fullSizeProductTypes: mapping.fullSizeProductTypes || [],
+      sampleVariantId: toNumericVariantId(mapping.sampleVariantId),
+    })),
+    travelSizeMappings: travelSource.map((mapping) => ({
+      category: mapping.category || '',
+      fullSizeProductTypes: mapping.fullSizeProductTypes || [],
+      travelSizeVariantIds: (mapping.travelSizeVariantIds || []).map(toNumericVariantId).filter((id) => id),
+    })),
+    freeFixedItems: freeFixedSource.map((item) => ({
+      variantId: toNumericVariantId(item.variantId),
+      quantity: Number(item.quantity) || 1,
+    })),
+    sampleVariantIds: sampleVariantSource.map(toNumericVariantId).filter((id) => id),
+    sampleRewards: co.sampleRewards || [],
+  };
 }
 
 function buildPreorderCartDebug(cart, cartConfig, plan) {

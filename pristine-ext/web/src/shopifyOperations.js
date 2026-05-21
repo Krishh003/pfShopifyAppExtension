@@ -262,6 +262,8 @@ export function createShopifyOperations(client) {
     updateOrderTrackingMetafield: (input) => updateOrderTrackingMetafield(client, input),
     getShopMetafield: (input) => getShopMetafield(client, input),
     setShopMetafield: (input) => setShopMetafield(client, input),
+    listPreorderAppDiscounts: () => listPreorderAppDiscounts(client),
+    setAppDiscountFunctionConfig: (input) => setAppDiscountFunctionConfig(client, input),
   };
 }
 
@@ -398,6 +400,69 @@ export async function updateOrderTrackingMetafield(client, input) {
     value: input.value,
     type: input.type || 'json',
   });
+}
+
+const PREORDER_APP_DISCOUNTS_QUERY = `
+  query PreorderAppDiscounts {
+    discountNodes(first: 100) {
+      nodes {
+        id
+        configurationMetafield: metafield(namespace: "$app", key: "function-configuration") {
+          jsonValue
+        }
+        discount {
+          __typename
+          ... on DiscountAutomaticApp {
+            title
+          }
+          ... on DiscountCodeApp {
+            title
+            codes(first: 1) {
+              nodes {
+                code
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+export async function listPreorderAppDiscounts(client) {
+  const data = await client.request(PREORDER_APP_DISCOUNTS_QUERY);
+  const root = data?.data || data;
+  const nodes = root?.discountNodes?.nodes || [];
+
+  return nodes
+    .filter((node) => node.configurationMetafield && /App$/.test(node.discount?.__typename || ''))
+    .map((node) => ({
+      id: node.id,
+      kind: node.discount.__typename === 'DiscountAutomaticApp' ? 'automatic' : 'code',
+      title: node.discount.title || '',
+      code: node.discount.codes?.nodes?.[0]?.code || null,
+      config: node.configurationMetafield.jsonValue || null,
+    }));
+}
+
+export async function setAppDiscountFunctionConfig(client, { ownerId, value } = {}) {
+  assertRequired(ownerId, 'ownerId');
+  assertRequired(value, 'value');
+
+  const variables = {
+    metafields: [
+      {
+        ownerId,
+        namespace: '$app',
+        key: 'function-configuration',
+        type: 'json',
+        value: String(value),
+      },
+    ],
+  };
+
+  const data = await client.request(METAFIELDS_SET_MUTATION, variables);
+  return unwrapMutation(data, 'metafieldsSet').metafields[0];
 }
 
 export async function getShopMetafield(client, { namespace = 'pristine', key } = {}) {

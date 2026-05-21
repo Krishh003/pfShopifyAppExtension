@@ -63,6 +63,37 @@ function createOperationsStub() {
         calls.push({ name: 'setShopMetafield', input });
         return { id: 'gid://shopify/Metafield/1', namespace: input.namespace, key: input.key, value: input.value };
       },
+      async listPreorderAppDiscounts() {
+        calls.push({ name: 'listPreorderAppDiscounts' });
+        return [
+          {
+            id: 'gid://shopify/DiscountAutomaticNode/1',
+            kind: 'automatic',
+            title: 'Pristine Preorder Best Value',
+            code: null,
+            config: {
+              tiers: [
+                {
+                  code: 'PREORDER40',
+                  minimumSubtotal: 5000,
+                  maximumSubtotal: null,
+                  percentage: 40,
+                  freeFixedItems: [{ variantId: 'gid://shopify/ProductVariant/111', quantity: 1 }],
+                },
+              ],
+              sampleEntitlements: [{ minimumSubtotal: 0, maximumSubtotal: null, quantity: 1, additionalQuantityPerSubtotal: 1000 }],
+              travelSizeMappings: [],
+              sampleVariantIds: [],
+            },
+          },
+          { id: 'gid://shopify/DiscountCodeNode/8', kind: 'code', title: 'PREORDER40', code: 'PREORDER40', config: {} },
+          { id: 'gid://shopify/DiscountCodeNode/9', kind: 'code', title: 'FREETRAVEL', code: 'FREETRAVEL', config: {} },
+        ];
+      },
+      async setAppDiscountFunctionConfig(input) {
+        calls.push({ name: 'setAppDiscountFunctionConfig', input });
+        return { id: input.ownerId };
+      },
     },
   };
 }
@@ -438,4 +469,52 @@ test('endpoints reject missing required fields', async () => {
 
   assert.equal(response.status, 400);
   assert.match(response.payload.error, /customerId/);
+});
+
+test('preorder config publish updates discount metafields (GIDs) and shop cart config (numeric)', async () => {
+  const { operations, calls } = createOperationsStub();
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+
+  const response = await request(app, 'POST', '/api/preorder/config', {
+    tiers: [
+      { code: 'PREORDER40', minimumSubtotal: 5000, maximumSubtotal: null, percentage: 40, freeTravelSizeQuantity: 1 },
+    ],
+    sampleCategoryMappings: [{ fullSizeProductTypes: ['Body Oil'], sampleVariantId: 222 }],
+    travelSizeMappings: [{ category: 'All', fullSizeProductTypes: ['Body Oil'], travelSizeVariantIds: [333] }],
+    freeFixedItems: [{ variantId: 444, quantity: 1 }],
+  });
+
+  assert.equal(response.status, 200);
+
+  const configCalls = calls.filter((call) => call.name === 'setAppDiscountFunctionConfig');
+  // automatic + PREORDER40 + FREETRAVEL
+  assert.equal(configCalls.length, 3);
+
+  const automaticCall = configCalls.find((call) => call.input.ownerId === 'gid://shopify/DiscountAutomaticNode/1');
+  const fnConfig = JSON.parse(automaticCall.input.value);
+  assert.ok(fnConfig.sampleVariantIds.includes('gid://shopify/ProductVariant/222'));
+  assert.equal(fnConfig.travelSizeMappings[0].travelSizeVariantIds[0], 'gid://shopify/ProductVariant/333');
+  const fnP40 = fnConfig.tiers.find((tier) => tier.code === 'PREORDER40');
+  assert.equal(fnP40.freeFixedItems[0].variantId, 'gid://shopify/ProductVariant/444');
+
+  const freeTravelCall = configCalls.find((call) => call.input.ownerId === 'gid://shopify/DiscountCodeNode/9');
+  assert.equal(JSON.parse(freeTravelCall.input.value).mode, 'manual_override');
+
+  const cartCall = calls.find((call) => call.name === 'setShopMetafield');
+  const cartConfig = JSON.parse(cartCall.input.value);
+  assert.equal(cartConfig.sampleCategoryMappings[0].sampleVariantId, 222);
+  assert.equal(cartConfig.freeFixedItems[0].variantId, 444);
+  assert.equal(cartConfig.travelSizeMappings[0].travelSizeVariantIds[0], 333);
+});
+
+test('preorder config GET returns canonical config with numeric variant ids', async () => {
+  const { operations } = createOperationsStub();
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+
+  const response = await request(app, 'GET', '/api/preorder/config');
+
+  assert.equal(response.status, 200);
+  // PREORDER40 free fixed item from the function config, converted GID -> numeric
+  assert.equal(response.payload.config.freeFixedItems[0].variantId, 111);
+  assert.equal(response.payload.config.tiers.find((tier) => tier.code === 'PREORDER40').percentage, 40);
 });
