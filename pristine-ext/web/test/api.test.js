@@ -507,6 +507,39 @@ test('preorder config publish updates discount metafields (GIDs) and shop cart c
   assert.equal(cartConfig.travelSizeMappings[0].travelSizeVariantIds[0], 333);
 });
 
+test('preorder cart config PUT merges over existing instead of replacing', async () => {
+  const { operations, calls } = createOperationsStub();
+  operations.getShopMetafield = async () => ({
+    value: JSON.stringify({
+      tiers: [{ code: 'PREORDER40', minimumSubtotal: 5000, maximumSubtotal: null, percentage: 40 }],
+      sampleEntitlements: [{ minimumSubtotal: 0, maximumSubtotal: null, quantity: 1, additionalQuantityPerSubtotal: 1000 }],
+      sampleCategoryMappings: [{ fullSizeProductTypes: ['Body Oil'], sampleVariantId: 222 }],
+      freeFixedItems: [{ variantId: 444, quantity: 1 }],
+      travelSizeMappings: [{ category: 'All', fullSizeProductTypes: ['Body Oil'], travelSizeVariantIds: [333] }],
+      sampleVariantIds: [222],
+      sampleRewards: [],
+    }),
+  });
+  const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });
+
+  const response = await request(app, 'PUT', '/api/preorder-cart/config', {
+    sampleRewards: [{ minimumSubtotal: 0, maximumSubtotal: null, variantId: 777, quantity: 2 }],
+  });
+
+  assert.equal(response.status, 200);
+  const setCall = calls.find((call) => call.name === 'setShopMetafield');
+  const saved = JSON.parse(setCall.input.value);
+  // preserved fields written by the unified publish endpoint
+  assert.equal(saved.tiers[0].code, 'PREORDER40');
+  assert.equal(saved.sampleEntitlements[0].additionalQuantityPerSubtotal, 1000);
+  assert.equal(saved.sampleCategoryMappings[0].sampleVariantId, 222);
+  assert.equal(saved.travelSizeMappings[0].travelSizeVariantIds[0], 333);
+  // updated field from this request
+  assert.equal(saved.sampleRewards[0].variantId, 777);
+  assert.ok(saved.sampleVariantIds.includes(777));
+  assert.ok(saved.sampleVariantIds.includes(222));
+});
+
 test('preorder config GET returns canonical config with numeric variant ids', async () => {
   const { operations } = createOperationsStub();
   const app = createApp({ operations, config: { shopDomain: 'pristine.myshopify.com' } });

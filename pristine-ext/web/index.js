@@ -206,12 +206,24 @@ export function createApp({
   app.put('/api/preorder-cart/config', requireInternalToken(config), asyncHandler(async (req, res) => {
     const sanitized = sanitizePreorderCartConfigInput(req.body);
 
+    // Merge over the existing override so this endpoint only touches the fields it was sent.
+    // The unified /api/preorder/config publish writes tiers + sampleEntitlements into the same
+    // metafield; without a merge, a partial save here would silently drop them.
+    const existing = (await loadPreorderCartOverride()) || {};
+    const merged = { ...existing };
+    for (const key of ['sampleRewards', 'sampleCategoryMappings', 'freeFixedItems', 'travelSizeMappings']) {
+      if (Object.prototype.hasOwnProperty.call(req.body, key)) {
+        merged[key] = sanitized[key];
+      }
+    }
+    merged.sampleVariantIds = deriveSampleVariantIds(merged);
+
     if (operations.setShopMetafield) {
       try {
         await operations.setShopMetafield({
           namespace: PREORDER_CART_CONFIG_NAMESPACE,
           key: PREORDER_CART_CONFIG_KEY,
-          value: JSON.stringify(sanitized),
+          value: JSON.stringify(merged),
           type: 'json',
         });
       } catch (error) {
@@ -225,7 +237,7 @@ export function createApp({
     resetPreorderCartConfigCache();
     const cfg = await getActivePreorderCartConfig({ forceRefresh: true });
 
-    res.json({ success: true, config: cfg, saved: sanitized });
+    res.json({ success: true, config: cfg, saved: merged });
   }));
 
   app.post('/api/preorder-cart/plan', asyncHandler(async (req, res) => {
@@ -473,6 +485,12 @@ function sanitizePreorderCartConfigInput(input = {}) {
     : [];
 
   return { sampleRewards, sampleVariantIds, sampleCategoryMappings, freeFixedItems, travelSizeMappings };
+}
+
+function deriveSampleVariantIds(config) {
+  const rewardIds = Array.isArray(config.sampleRewards) ? config.sampleRewards.map((reward) => Number(reward.variantId)) : [];
+  const categoryIds = Array.isArray(config.sampleCategoryMappings) ? config.sampleCategoryMappings.map((mapping) => Number(mapping.sampleVariantId)) : [];
+  return Array.from(new Set([...rewardIds, ...categoryIds].filter((id) => Number.isFinite(id) && id > 0)));
 }
 
 function toVariantGid(id) {
