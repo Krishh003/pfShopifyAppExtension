@@ -47,7 +47,7 @@ test('adds missing samples up to the subtotal entitlement', () => {
   assert.deepEqual(result.adds, [
     {
       id: 101,
-      quantity: 5,
+      quantity: 3,
       properties: {
         _pristine_preorder_auto: 'sample',
         _pristine_preorder_reason: 'subtotal_entitlement',
@@ -65,7 +65,7 @@ test('reduces excess auto-managed samples to the subtotal entitlement', () => {
     config
   );
 
-  assert.deepEqual(result.changes, [{ id: 'sample-key', quantity: 5 }]);
+  assert.deepEqual(result.changes, [{ id: 'sample-key', quantity: 1 }]);
 });
 
 test('adds fixed freebies and matching travel-size lines for qualifying carts', () => {
@@ -80,7 +80,7 @@ test('adds fixed freebies and matching travel-size lines for qualifying carts', 
   assert.deepEqual(
     result.adds.map((add) => ({ id: add.id, quantity: add.quantity, type: add.properties._pristine_preorder_auto })),
     [
-      { id: 101, quantity: 1, type: 'sample' },
+      { id: 101, quantity: 6, type: 'sample' },
       { id: 201, quantity: 2, type: 'free_fixed' },
       { id: 301, quantity: 1, type: 'travel_size' },
     ]
@@ -226,4 +226,56 @@ test('removes duplicate managed lines by total desired quantity', () => {
   );
 
   assert.deepEqual(result.changes, [{ id: 'fixed-two', quantity: 0 }]);
+});
+
+test('distributes universal samples across present categories by cart value', () => {
+  const categoryConfig = buildPreorderCartConfig({
+    sampleCategoryMappings: [
+      { fullSizeProductTypes: ['Face Mist'], sampleVariantId: 501 },
+      { fullSizeProductTypes: ['Body Mist'], sampleVariantId: 502 },
+      { fullSizeProductTypes: ['Body Oil', 'Essential Oil'], sampleVariantId: 503 },
+    ],
+  });
+
+  // subtotal 2600 -> entitlement 3 (1 + floor(2600/1000)); Face Mist + Body Oil present -> 2 categories
+  const result = planPreorderCartMutations(
+    cart({
+      subtotal: 2600,
+      items: [
+        line({ key: 'full-face', variantId: 401, quantity: 1, productType: 'Face Mist' }),
+        line({ key: 'full-oil', variantId: 402, quantity: 1, productType: 'Body Oil' }),
+      ],
+    }),
+    categoryConfig
+  );
+
+  assert.deepEqual(
+    result.adds.map((add) => ({ id: add.id, quantity: add.quantity })),
+    [
+      { id: 501, quantity: 2 },
+      { id: 503, quantity: 1 },
+    ]
+  );
+});
+
+test('falls back to a single sample variant when no mapped category is in the cart', () => {
+  const categoryConfig = buildPreorderCartConfig({
+    sampleVariantIds: [999],
+    sampleCategoryMappings: [
+      { fullSizeProductTypes: ['Face Mist'], sampleVariantId: 501 },
+    ],
+  });
+
+  const result = planPreorderCartMutations(
+    cart({
+      subtotal: 1500,
+      items: [line({ key: 'snowboard', variantId: 700, quantity: 1, productType: 'snowboard' })],
+    }),
+    categoryConfig
+  );
+
+  assert.deepEqual(
+    result.adds.map((add) => ({ id: add.id, quantity: add.quantity })),
+    [{ id: 999, quantity: 2 }]
+  );
 });

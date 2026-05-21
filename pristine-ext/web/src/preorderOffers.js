@@ -6,12 +6,7 @@ export const PREORDER_OFFER_CONFIG = {
     freeTravel: 'FREETRAVEL',
   },
   sampleEntitlements: [
-    { minimumSubtotal: 0, maximumSubtotal: 999.99, quantity: 1 },
-    { minimumSubtotal: 1000, maximumSubtotal: 1999.99, quantity: 2 },
-    { minimumSubtotal: 2000, maximumSubtotal: 2999.99, quantity: 3 },
-    { minimumSubtotal: 3000, maximumSubtotal: 3999.99, quantity: 4 },
-    { minimumSubtotal: 4000, maximumSubtotal: 4999.99, quantity: 5 },
-    { minimumSubtotal: 5000, maximumSubtotal: null, quantity: 6, additionalQuantityPerSubtotal: 1000 },
+    { minimumSubtotal: 0, maximumSubtotal: null, quantity: 1, additionalQuantityPerSubtotal: 1000 },
   ],
   sampleVariantIds: [],
   travelSizeMappings: [],
@@ -31,8 +26,16 @@ export const PREORDER_OFFER_CONFIG = {
     {
       code: 'PREORDER30',
       title: 'Preorder 30% off',
-      description: '30% off preorder carts from INR 2000 to INR 4999',
+      description: '30% off preorder carts from INR 2000 to INR 2999',
       minimumSubtotal: 2000,
+      maximumSubtotal: 2999.99,
+      percentage: 30,
+    },
+    {
+      code: 'PREORDER30',
+      title: 'Preorder 30% off + travel size',
+      description: '30% off preorder carts from INR 3000 to INR 4999 with a free travel size',
+      minimumSubtotal: 3000,
       maximumSubtotal: 4999.99,
       percentage: 30,
       freeTravelSizeQuantity: 1,
@@ -77,8 +80,15 @@ export function getPreorderTierForSubtotal(subtotal, config = PREORDER_OFFER_CON
 }
 
 export function buildPreorderVisibleCoupons(config = PREORDER_OFFER_CONFIG) {
-  return [
-    ...config.tiers.map((tier) => ({
+  const tierCoupons = [];
+  const seenCodes = new Set();
+
+  for (const tier of config.tiers) {
+    if (seenCodes.has(tier.code)) {
+      continue;
+    }
+    seenCodes.add(tier.code);
+    tierCoupons.push({
       code: tier.code,
       title: tier.description,
       discount: `${tier.percentage}% OFF`,
@@ -86,7 +96,11 @@ export function buildPreorderVisibleCoupons(config = PREORDER_OFFER_CONFIG) {
       minimumSubtotal: tier.minimumSubtotal,
       maximumSubtotal: tier.maximumSubtotal,
       expiresAt: null,
-    })),
+    });
+  }
+
+  return [
+    ...tierCoupons,
     ...config.manualOverrides.map((override) => ({
       code: override.code,
       title: override.description,
@@ -107,6 +121,7 @@ export function buildPreorderDiscountSetupWithConfig({
   endsAt,
   freeFixedItems = [],
   travelSizeMappings = [],
+  sampleRewards = [],
   sampleVariantIds = [],
   autoBenefits = [],
 } = {}) {
@@ -129,6 +144,7 @@ export function buildPreorderDiscountSetupWithConfig({
     ),
     travelSizeMappings,
     sampleEntitlements: PREORDER_OFFER_CONFIG.sampleEntitlements,
+    sampleRewards,
     sampleVariantIds,
     autoBenefits,
     cartMutation: PREORDER_OFFER_CONFIG.cartMutation,

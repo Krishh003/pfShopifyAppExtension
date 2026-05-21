@@ -56,13 +56,26 @@ test('publishes free item, travel-size, sample, and cleanup contracts in functio
         travelSizeVariantIds: ['gid://shopify/ProductVariant/travel-face'],
       },
     ],
+    sampleRewards: [
+      {
+        minimumSubtotal: 5000,
+        maximumSubtotal: null,
+        variantId: 'gid://shopify/ProductVariant/premium-sample',
+        quantity: 1,
+      },
+    ],
     sampleVariantIds: ['gid://shopify/ProductVariant/sample'],
   });
   const config = JSON.parse(setup.automatic.metafields[0].value);
 
-  assert.equal(config.tiers[2].freeFixedItems[0].variantId, 'gid://shopify/ProductVariant/oil-1');
+  const preorder40 = config.tiers.find((tier) => tier.code === 'PREORDER40');
+  assert.equal(preorder40.freeFixedItems[0].variantId, 'gid://shopify/ProductVariant/oil-1');
   assert.equal(config.travelSizeMappings[0].category, 'Face Care');
+  assert.equal(config.sampleRewards[0].variantId, 'gid://shopify/ProductVariant/premium-sample');
   assert.equal(config.sampleVariantIds[0], 'gid://shopify/ProductVariant/sample');
+  assert.deepEqual(config.sampleEntitlements, [
+    { minimumSubtotal: 0, maximumSubtotal: null, quantity: 1, additionalQuantityPerSubtotal: 1000 },
+  ]);
   assert.equal(config.cartMutation.required, true);
   assert.match(config.cartMutation.reason, /cannot add or remove cart lines/);
 });

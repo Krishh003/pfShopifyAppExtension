@@ -294,7 +294,7 @@ test('preorder setup endpoint passes free item and cart integration config into 
   const functionConfig = JSON.parse(calls[0].input.metafields[0].value);
 
   assert.equal(response.status, 200);
-  assert.equal(functionConfig.tiers[2].freeFixedItems[0].quantity, 2);
+  assert.equal(functionConfig.tiers.find((tier) => tier.code === 'PREORDER40').freeFixedItems[0].quantity, 2);
   assert.equal(functionConfig.travelSizeMappings[0].category, 'Face Care');
   assert.equal(functionConfig.sampleRewards[0].variantId, 'gid://shopify/ProductVariant/premium-sample');
   assert.equal(functionConfig.sampleVariantIds[0], 'gid://shopify/ProductVariant/sample');

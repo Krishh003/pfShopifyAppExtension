@@ -360,11 +360,23 @@ function sanitizePreorderCartConfigInput(input = {}) {
     })
     .filter((reward) => Number.isFinite(reward.variantId) && reward.variantId > 0);
 
+  const sampleCategoryMappings = Array.isArray(input.sampleCategoryMappings)
+    ? input.sampleCategoryMappings
+        .map((mapping) => ({
+          fullSizeProductTypes: Array.isArray(mapping?.fullSizeProductTypes)
+            ? mapping.fullSizeProductTypes.map((entry) => String(entry).trim()).filter(Boolean)
+            : [],
+          sampleVariantId: Number(mapping?.sampleVariantId),
+        }))
+        .filter((mapping) => Number.isFinite(mapping.sampleVariantId) && mapping.sampleVariantId > 0 && mapping.fullSizeProductTypes.length)
+    : [];
+
   const explicitVariantIds = Array.isArray(input.sampleVariantIds)
     ? input.sampleVariantIds.map(Number).filter((id) => Number.isFinite(id) && id > 0)
     : [];
   const rewardVariantIds = sampleRewards.map((reward) => reward.variantId);
-  const sampleVariantIds = Array.from(new Set([...explicitVariantIds, ...rewardVariantIds]));
+  const categoryVariantIds = sampleCategoryMappings.map((mapping) => mapping.sampleVariantId);
+  const sampleVariantIds = Array.from(new Set([...explicitVariantIds, ...rewardVariantIds, ...categoryVariantIds]));
 
   const freeFixedItems = Array.isArray(input.freeFixedItems)
     ? input.freeFixedItems
@@ -389,7 +401,7 @@ function sanitizePreorderCartConfigInput(input = {}) {
         .filter((mapping) => mapping.category && mapping.travelSizeVariantIds.length)
     : [];
 
-  return { sampleRewards, sampleVariantIds, freeFixedItems, travelSizeMappings };
+  return { sampleRewards, sampleVariantIds, sampleCategoryMappings, freeFixedItems, travelSizeMappings };
 }
 
 function buildPreorderCartDebug(cart, cartConfig, plan) {

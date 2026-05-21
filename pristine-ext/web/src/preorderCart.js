@@ -2,13 +2,13 @@ export const AUTO_PROPERTY = '_pristine_preorder_auto';
 export const REASON_PROPERTY = '_pristine_preorder_reason';
 
 const DEFAULT_SAMPLE_ENTITLEMENTS = [
-  { minimumSubtotal: 0, maximumSubtotal: 4999.99, quantity: 5 },
-  { minimumSubtotal: 5000, maximumSubtotal: null, quantity: 1 },
+  { minimumSubtotal: 0, maximumSubtotal: null, quantity: 1, additionalQuantityPerSubtotal: 1000 },
 ];
 
 const DEFAULT_TIERS = [
   { code: 'PREORDER25', minimumSubtotal: 0, maximumSubtotal: 1999.99, percentage: 25 },
-  { code: 'PREORDER30', minimumSubtotal: 2000, maximumSubtotal: 4999.99, percentage: 30, freeTravelSizeQuantity: 1 },
+  { code: 'PREORDER30', minimumSubtotal: 2000, maximumSubtotal: 2999.99, percentage: 30 },
+  { code: 'PREORDER30', minimumSubtotal: 3000, maximumSubtotal: 4999.99, percentage: 30, freeTravelSizeQuantity: 1 },
   { code: 'PREORDER40', minimumSubtotal: 5000, maximumSubtotal: null, percentage: 40, freeTravelSizeQuantity: 1 },
 ];
 
@@ -17,6 +17,7 @@ export function buildPreorderCartConfig({
   sampleEntitlements = DEFAULT_SAMPLE_ENTITLEMENTS,
   sampleRewards = [],
   sampleVariantIds = [],
+  sampleCategoryMappings = [],
   freeFixedItems = [],
   travelSizeMappings = [],
 } = {}) {
@@ -28,6 +29,7 @@ export function buildPreorderCartConfig({
     sampleEntitlements,
     sampleRewards,
     sampleVariantIds,
+    sampleCategoryMappings,
     travelSizeMappings,
     privateProperties: {
       auto: AUTO_PROPERTY,
@@ -41,7 +43,7 @@ export function planPreorderCartMutations(cart, config = buildPreorderCartConfig
   const subtotal = getCartSubtotal(cart, config, items);
   const tier = getTierForSubtotal(subtotal, config.tiers);
   const desiredLines = [
-    ...desiredSampleLines(subtotal, config),
+    ...desiredSampleLines(subtotal, config, items),
     ...desiredFixedFreeLines(tier),
     ...desiredTravelSizeLines(items, tier, config),
   ];
@@ -126,11 +128,21 @@ function isConfiguredSampleVariant(variantId, config) {
     ? config.sampleRewards.map((reward) => reward.variantId)
     : [];
   const sampleVariantIds = Array.isArray(config.sampleVariantIds) ? config.sampleVariantIds : [];
+  const categoryVariantIds = Array.isArray(config.sampleCategoryMappings)
+    ? config.sampleCategoryMappings.map((mapping) => mapping.sampleVariantId)
+    : [];
 
-  return [...sampleRewardVariantIds, ...sampleVariantIds].some((sampleVariantId) => variantsEqual(sampleVariantId, variantId));
+  return [...sampleRewardVariantIds, ...sampleVariantIds, ...categoryVariantIds]
+    .some((sampleVariantId) => variantsEqual(sampleVariantId, variantId));
 }
 
-function desiredSampleLines(subtotal, config) {
+function desiredSampleLines(subtotal, config, items = []) {
+  const categoryMappings = Array.isArray(config.sampleCategoryMappings) ? config.sampleCategoryMappings : [];
+
+  if (categoryMappings.length > 0) {
+    return desiredCategorySampleLines(subtotal, config, items, categoryMappings);
+  }
+
   const sampleReward = getSampleReward(subtotal, config.sampleRewards);
 
   if (sampleReward) {
@@ -155,6 +167,43 @@ function desiredSampleLines(subtotal, config) {
     autoType: 'sample',
     reason: 'subtotal_entitlement',
   }];
+}
+
+// Universal samples (spec): total quantity scales with cart value, but the variant
+// matches the category the customer is buying. Total is distributed round-robin across
+// whichever mapped categories are present in the cart.
+function desiredCategorySampleLines(subtotal, config, items, categoryMappings) {
+  const total = getSampleEntitlement(subtotal, config.sampleEntitlements);
+
+  if (total <= 0) {
+    return [];
+  }
+
+  const matchedVariantIds = [];
+  for (const mapping of categoryMappings) {
+    const productTypes = new Set((mapping.fullSizeProductTypes || []).map((entry) => String(entry)));
+    const present = items.some((item) => !isManagedCartLine(item, config) && productTypes.has(item.product_type));
+    if (present && mapping.sampleVariantId && !matchedVariantIds.includes(mapping.sampleVariantId)) {
+      matchedVariantIds.push(mapping.sampleVariantId);
+    }
+  }
+
+  const targets = matchedVariantIds.length > 0
+    ? matchedVariantIds
+    : [config.sampleVariantIds?.[0] ?? categoryMappings[0]?.sampleVariantId].filter(Boolean);
+
+  if (targets.length === 0) {
+    return [];
+  }
+
+  return targets
+    .map((variantId, index) => ({
+      variantId,
+      quantity: Math.floor(total / targets.length) + (index < total % targets.length ? 1 : 0),
+      autoType: 'sample',
+      reason: 'subtotal_entitlement',
+    }))
+    .filter((line) => line.quantity > 0);
 }
 
 function getSampleReward(subtotal, sampleRewards = []) {
@@ -308,14 +357,16 @@ function getSampleEntitlement(subtotal, entitlements = []) {
 
 function buildCartMessages(subtotal, tier, desiredLines) {
   const messages = [];
-  const samples = desiredLines.find((line) => line.autoType === 'sample');
+  const sampleQuantity = desiredLines
+    .filter((line) => line.autoType === 'sample')
+    .reduce((sum, line) => sum + Number(line.quantity || 0), 0);
 
   if (tier) {
     messages.push({ type: 'preorder_tier', text: `${tier.code} eligible` });
   }
 
-  if (samples) {
-    messages.push({ type: 'samples', text: `${samples.quantity} sample${samples.quantity === 1 ? '' : 's'} eligible` });
+  if (sampleQuantity > 0) {
+    messages.push({ type: 'samples', text: `${sampleQuantity} sample${sampleQuantity === 1 ? '' : 's'} eligible` });
   }
 
   if (subtotal > 0 && desiredLines.some((line) => line.autoType === 'travel_size')) {
