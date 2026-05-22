@@ -37,7 +37,7 @@
         <button id="logoutButton" type="button" hidden>Log out</button>
       </section>
 
-      <section class="workspace">
+      <section class="workspace" data-auth-gated hidden>
         <div class="sidebar-panels">
           <form class="panel coupon-form" id="couponForm">
             <div class="section-heading">
@@ -182,7 +182,7 @@
         </section>
       </section>
 
-      <section class="panel preorder-cart-panel" aria-labelledby="preorderCartHeading">
+      <section class="panel preorder-cart-panel" aria-labelledby="preorderCartHeading" data-auth-gated hidden>
         <div class="section-heading">
           <h2 id="preorderCartHeading">Auto-Add Cart Items</h2>
           <p>Configure which sample / reward variant gets auto-added at each subtotal tier. Saved to the Shopify shop metafield <code>pristine.preorder_cart_config</code>.</p>
@@ -270,7 +270,7 @@
         </form>
       </section>
 
-      <section class="panel preorder-config-panel" aria-labelledby="preorderConfigHeading">
+      <section class="panel preorder-config-panel" aria-labelledby="preorderConfigHeading" data-auth-gated hidden>
         <div class="section-heading">
           <h2 id="preorderConfigHeading">Preorder Freebies &amp; Discount Tiers</h2>
           <p>Configure the full preorder promotion. <strong>Publish</strong> updates the discount-function config on every preorder discount <em>and</em> the cart auto-add config in one step. Variant IDs are numeric Shopify variant IDs.</p>

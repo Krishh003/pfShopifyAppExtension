@@ -29,6 +29,7 @@ async function refreshAuth() {
 
 function applyAuthState(me) {
   isAuthed = Boolean(me.authenticated);
+  document.querySelectorAll('[data-auth-gated]').forEach((el) => { el.hidden = !isAuthed; });
   if (isAuthed) {
     loginForm.hidden = true;
     logoutButton.hidden = false;
