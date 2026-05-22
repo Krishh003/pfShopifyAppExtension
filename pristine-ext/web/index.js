@@ -167,6 +167,7 @@ export function createApp({
   }));
 
   app.get('/admin/coupons', (req, res) => {
+    res.set('Cache-Control', 'no-store');
     res.sendFile(join(__dirname, 'public', 'admin-coupons.html'));
   });
 
