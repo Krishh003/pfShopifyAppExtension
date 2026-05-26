@@ -7,13 +7,13 @@ declare module './src/ProfileBanner.jsx' {
 }
 
 //@ts-ignore
-declare module './src/ProfileCoupons.jsx' {
+declare module './src/ProfileCredits.jsx' {
   const shopify: import('@shopify/ui-extensions/customer-account.profile.block.render').Api;
   const globalThis: { shopify: typeof shopify };
 }
 
 //@ts-ignore
-declare module './src/ProfileCredits.jsx' {
+declare module './src/ProfileCoupons.jsx' {
   const shopify: import('@shopify/ui-extensions/customer-account.profile.block.render').Api;
   const globalThis: { shopify: typeof shopify };
 }
@@ -31,13 +31,13 @@ declare module './src/OrderIndexBlock.jsx' {
 }
 
 //@ts-ignore
-declare module './src/couponOffers.js' {
+declare module './src/creditBalance.js' {
   const shopify: import('@shopify/ui-extensions/customer-account.profile.block.render').Api;
   const globalThis: { shopify: typeof shopify };
 }
 
 //@ts-ignore
-declare module './src/creditBalance.js' {
+declare module './src/couponOffers.js' {
   const shopify: import('@shopify/ui-extensions/customer-account.profile.block.render').Api;
   const globalThis: { shopify: typeof shopify };
 }

@@ -1,4 +1,4 @@
-#![no_main]
+#![cfg_attr(not(test), no_main)]
 
 use shopify_function::prelude::*;
 use shopify_function::Result;
@@ -14,6 +14,8 @@ struct Configuration {
     travel_size_mappings: Vec<TravelSizeMapping>,
     #[shopify_function(default)]
     sample_entitlements: Vec<SampleEntitlement>,
+    #[shopify_function(default)]
+    sample_rewards: Vec<SampleReward>,
     #[shopify_function(default)]
     sample_variant_ids: Vec<String>,
     #[shopify_function(default)]
@@ -95,6 +97,19 @@ struct SampleEntitlement {
     additional_quantity_per_subtotal: Option<f64>,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[shopify_function(rename_all = "camelCase")]
+struct SampleReward {
+    #[shopify_function(default)]
+    minimum_subtotal: f64,
+    #[shopify_function(default)]
+    maximum_subtotal: Option<f64>,
+    variant_id: String,
+    quantity: f64,
+    #[shopify_function(default)]
+    label: Option<String>,
+}
+
 #[derive(Clone)]
 struct Line {
     id: String,
@@ -121,6 +136,7 @@ pub mod schema {
     pub mod run {}
 }
 
+#[cfg(not(test))]
 #[export_name = "_start"]
 pub extern "C" fn start() {
     std::process::abort();
@@ -137,21 +153,23 @@ fn run(input: schema::run::RunInput) -> Result<schema::CartLinesDiscountsGenerat
     let subtotal = input.cart().cost().subtotal_amount().amount().as_f64();
     let lines = get_product_variant_lines(input.cart().lines());
 
-    let best_benefit = if config.mode.as_deref() == Some("manual_override") {
+    let primary_benefit = if config.mode.as_deref() == Some("manual_override") {
         build_manual_override_benefit(&input, &config, subtotal, &lines)
     } else {
         let tier_benefit = get_tier_for_subtotal(subtotal, &config.tiers)
             .map(|tier| build_tier_benefit(&input, &config, tier, subtotal, &lines));
-        let sample_benefit = Some(build_sample_benefit(&input, &config, subtotal, &lines));
         let auto_benefits = config.auto_benefits.iter()
             .map(|benefit| build_product_benefit(&input, &config, benefit, subtotal, &lines));
 
         tier_benefit.into_iter()
             .chain(auto_benefits)
-            .chain(sample_benefit)
             .filter(|benefit| !benefit.order_candidates.is_empty() || !benefit.product_candidates.is_empty())
             .max_by(|left, right| left.savings.partial_cmp(&right.savings).unwrap_or(std::cmp::Ordering::Equal))
     };
+    let best_benefit = with_stackable_samples(
+        primary_benefit,
+        build_sample_benefit(&input, &config, subtotal, &lines),
+    );
 
     Ok(build_result_for_benefit(&input, best_benefit))
 }
@@ -248,10 +266,16 @@ fn build_sample_benefit(
         return empty_benefit();
     }
 
-    let entitlement = get_sample_entitlement(subtotal, &config.sample_entitlements);
+    let sample_reward = get_sample_reward(subtotal, &config.sample_rewards);
+    let variant_ids = sample_reward
+        .map(|reward| vec![reward.variant_id.clone()])
+        .unwrap_or_else(|| config.sample_variant_ids.clone());
+    let entitlement = sample_reward
+        .map(|reward| reward.quantity)
+        .unwrap_or_else(|| get_sample_entitlement(subtotal, &config.sample_entitlements));
     let product_candidates = build_free_variant_candidates(
         lines,
-        &config.sample_variant_ids,
+        &variant_ids,
         entitlement,
         "Free sample",
         None,
@@ -262,6 +286,24 @@ fn build_sample_benefit(
         savings,
         order_candidates: vec![],
         product_candidates,
+    }
+}
+
+fn with_stackable_samples(
+    primary_benefit: Option<BenefitResult>,
+    sample_benefit: BenefitResult,
+) -> Option<BenefitResult> {
+    if sample_benefit.product_candidates.is_empty() {
+        return primary_benefit;
+    }
+
+    match primary_benefit {
+        Some(mut benefit) => {
+            benefit.savings += sample_benefit.savings;
+            benefit.product_candidates.extend(sample_benefit.product_candidates);
+            Some(benefit)
+        }
+        None => Some(sample_benefit),
     }
 }
 
@@ -426,6 +468,15 @@ fn get_sample_entitlement(subtotal: f64, entitlements: &[SampleEntitlement]) -> 
     }
 }
 
+fn get_sample_reward<'a>(subtotal: f64, rewards: &'a [SampleReward]) -> Option<&'a SampleReward> {
+    rewards.iter().find(|reward| {
+        subtotal >= reward.minimum_subtotal
+            && reward.maximum_subtotal.map_or(true, |maximum| subtotal <= maximum)
+            && !reward.variant_id.is_empty()
+            && reward.quantity > 0.0
+    })
+}
+
 fn count_matching_full_size_quantity(lines: &[Line], mapping: &TravelSizeMapping) -> f64 {
     lines.iter().fold(0.0, |sum, line| {
         let is_travel_size = mapping.travel_size_variant_ids.iter().any(|id| id == &line.variant_id);
@@ -512,5 +563,207 @@ fn empty_benefit() -> BenefitResult {
         savings: 0.0,
         order_candidates: vec![],
         product_candidates: vec![],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shopify_function::{run_function_with_input, Result};
+
+    #[test]
+    fn samples_stack_with_best_preorder_tier() -> Result<()> {
+        let result = run_function_with_input(
+            run,
+            r#"
+            {
+              "cart": {
+                "lines": [
+                  {
+                    "id": "gid://Shopify/CartLine/full-size",
+                    "quantity": 8,
+                    "cost": {
+                      "subtotalAmount": {
+                        "amount": "5999.60",
+                        "currencyCode": "INR"
+                      }
+                    },
+                    "merchandise": {
+                      "__typename": "ProductVariant",
+                      "id": "gid://Shopify/ProductVariant/full-size",
+                      "product": {
+                        "id": "gid://Shopify/Product/1",
+                        "productType": "snowboards"
+                      }
+                    }
+                  },
+                  {
+                    "id": "gid://Shopify/CartLine/sample",
+                    "quantity": 1,
+                    "cost": {
+                      "subtotalAmount": {
+                        "amount": "9.95",
+                        "currencyCode": "INR"
+                      }
+                    },
+                    "merchandise": {
+                      "__typename": "ProductVariant",
+                      "id": "gid://Shopify/ProductVariant/sample",
+                      "product": {
+                        "id": "gid://Shopify/Product/2",
+                        "productType": "samples"
+                      }
+                    }
+                  }
+                ],
+                "cost": {
+                  "subtotalAmount": {
+                    "amount": "6009.55",
+                    "currencyCode": "INR"
+                  }
+                }
+              },
+              "discount": {
+                "discountClasses": ["ORDER", "PRODUCT"],
+                "metafield": {
+                  "jsonValue": {
+                    "tiers": [
+                      {
+                        "code": "PREORDER40",
+                        "minimumSubtotal": 5000.0,
+                        "maximumSubtotal": null,
+                        "percentage": 40.0,
+                        "freeTravelSizeQuantity": 1.0,
+                        "freeFixedItems": []
+                      }
+                    ],
+                    "sampleEntitlements": [
+                      {
+                        "minimumSubtotal": 5000.0,
+                        "maximumSubtotal": null,
+                        "quantity": 1.0
+                      }
+                    ],
+                    "sampleVariantIds": ["gid://Shopify/ProductVariant/sample"],
+                    "travelSizeMappings": [],
+                    "autoBenefits": []
+                  }
+                }
+              }
+            }
+            "#,
+        )?;
+
+        assert!(result.operations.iter().any(|operation| {
+            matches!(operation, schema::CartOperation::OrderDiscountsAdd(_))
+        }));
+        assert!(result.operations.iter().any(|operation| {
+            matches!(operation, schema::CartOperation::ProductDiscountsAdd(_))
+        }));
+
+        Ok(())
+    }
+
+    #[test]
+    fn sample_rewards_only_discount_active_sample_tier() -> Result<()> {
+        let result = run_function_with_input(
+            run,
+            r#"
+            {
+              "cart": {
+                "lines": [
+                  {
+                    "id": "gid://Shopify/CartLine/lower-sample",
+                    "quantity": 5,
+                    "cost": {
+                      "subtotalAmount": {
+                        "amount": "49.75",
+                        "currencyCode": "INR"
+                      }
+                    },
+                    "merchandise": {
+                      "__typename": "ProductVariant",
+                      "id": "gid://Shopify/ProductVariant/lower-sample",
+                      "product": {
+                        "id": "gid://Shopify/Product/1",
+                        "productType": "samples"
+                      }
+                    }
+                  },
+                  {
+                    "id": "gid://Shopify/CartLine/premium-sample",
+                    "quantity": 1,
+                    "cost": {
+                      "subtotalAmount": {
+                        "amount": "24.95",
+                        "currencyCode": "INR"
+                      }
+                    },
+                    "merchandise": {
+                      "__typename": "ProductVariant",
+                      "id": "gid://Shopify/ProductVariant/premium-sample",
+                      "product": {
+                        "id": "gid://Shopify/Product/2",
+                        "productType": "samples"
+                      }
+                    }
+                  }
+                ],
+                "cost": {
+                  "subtotalAmount": {
+                    "amount": "5074.70",
+                    "currencyCode": "INR"
+                  }
+                }
+              },
+              "discount": {
+                "discountClasses": ["PRODUCT"],
+                "metafield": {
+                  "jsonValue": {
+                    "sampleRewards": [
+                      {
+                        "minimumSubtotal": 0.0,
+                        "maximumSubtotal": 4999.99,
+                        "variantId": "gid://Shopify/ProductVariant/lower-sample",
+                        "quantity": 5.0
+                      },
+                      {
+                        "minimumSubtotal": 5000.0,
+                        "maximumSubtotal": null,
+                        "variantId": "gid://Shopify/ProductVariant/premium-sample",
+                        "quantity": 1.0
+                      }
+                    ],
+                    "sampleVariantIds": [
+                      "gid://Shopify/ProductVariant/lower-sample",
+                      "gid://Shopify/ProductVariant/premium-sample"
+                    ],
+                    "tiers": [],
+                    "sampleEntitlements": [],
+                    "travelSizeMappings": [],
+                    "autoBenefits": []
+                  }
+                }
+              }
+            }
+            "#,
+        )?;
+
+        let discounted_target_ids: Vec<String> = result.operations.iter().flat_map(|operation| {
+            match operation {
+                schema::CartOperation::ProductDiscountsAdd(operation) => operation.candidates.iter().flat_map(|candidate| {
+                    candidate.targets.iter().filter_map(|target| {
+                        match target {
+                            schema::ProductDiscountCandidateTarget::CartLine(target) => Some(target.id.clone()),
+                        }
+                    })
+                }).collect::<Vec<_>>(),
+                _ => vec![],
+            }
+        }).collect();
+
+        assert_eq!(discounted_target_ids, vec!["gid://Shopify/CartLine/premium-sample".to_string()]);
+
+        Ok(())
     }
 }
