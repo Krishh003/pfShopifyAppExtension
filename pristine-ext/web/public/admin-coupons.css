@@ -17,6 +17,12 @@
   box-sizing: border-box;
 }
 
+/* The [hidden] attribute must win over author display rules
+   (.workspace/.panel set display:grid/flex, which otherwise override it). */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: var(--surface-soft);
