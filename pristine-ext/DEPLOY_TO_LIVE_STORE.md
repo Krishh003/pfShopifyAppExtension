@@ -4,6 +4,19 @@ This is the cutover runbook to take the app from the dev store
 (`main-site-test.myshopify.com`) to a production store. It is **not**
 plug-and-play — follow the steps in order.
 
+## Two domains — do not mix them up
+
+The store uses a custom public domain, but there are **two** domains in play:
+
+- **Admin / API domain:** the permanent `*.myshopify.com` (e.g. `pristineforests.myshopify.com`).
+  Used by the Admin GraphQL API, OAuth, and the backend `SHOP_DOMAIN` env. Find it in
+  Shopify admin → Settings → Domains.
+- **Storefront domain:** `www.pristineforests.com` — the public site customers see. This is
+  where the theme + `preorder-cart.js` run. It is **never** used for Admin API calls.
+
+Using the custom domain for `SHOP_DOMAIN` / Admin API will fail. Always use `*.myshopify.com`
+for the API; the custom domain only matters for the storefront/theme and CORS.
+
 ## Architecture (what gets installed where)
 
 | Component | Lives on | Purpose |
@@ -89,7 +102,7 @@ root-only env file (e.g. `/etc/pristine/backend.env`, `chmod 600`) — never in 
 
 | Var | Value |
 |-----|-------|
-| `SHOP_DOMAIN` | `your-live-store.myshopify.com` |
+| `SHOP_DOMAIN` | the permanent **`.myshopify.com`** domain (e.g. `pristineforests.myshopify.com`) — **NOT** `www.pristineforests.com` |
 | `SHOPIFY_API_KEY` | live app client id |
 | `SHOPIFY_API_SECRET` | live app secret |
 | `SHOPIFY_ACCESS_TOKEN` | live store admin token (or leave blank to use client_credentials) |
@@ -168,6 +181,11 @@ In the live theme, add a custom-liquid block (or `theme.liquid`) with:
 ```
 Without this, the discount function still discounts items already in the cart, but
 samples/travel/oils never get **added**.
+
+> This script runs on the public storefront (`www.pristineforests.com`) and calls the
+> backend cross-origin. `cartRoot` uses the relative `window.Shopify.routes.root`, so it
+> works on the custom domain unchanged. The backend allows any origin (CORS `*`); if you
+> later lock CORS down, allowlist `https://www.pristineforests.com`.
 
 ## Step 9 — Activate + verify
 
