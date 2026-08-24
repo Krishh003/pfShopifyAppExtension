@@ -1,115 +1,211 @@
-# Pristine Forests Shopify Portal
+# Pristine Forests Shopify Customer Portal
 
-This repository contains the Shopify App Extensions for the **Pristine Forests** customer portal. It provides a premium, "Organic Luxury" branded experience for customer accounts, featuring modular blocks for banners, coupons, store credits, and order tracking.
+> A production-oriented Shopify customer-account extension with modular UI blocks, Admin GraphQL mutations, preorder discount logic, store-credit workflows and storefront cart reconciliation.
 
-## Features
+**Shopify · React · Node.js · Express · GraphQL · Rust · WebAssembly · JavaScript**
 
-- **Modular Architecture**: 5 independent UI extension blocks that can be positioned dynamically in the Shopify Editor.
-- **Premium Design System**: Forest-themed aesthetic using Shopify's native semantic tokens.
-- **Dynamic Data Fetching**: Customer Account API reads for backend-owned display metafields and legacy fallbacks.
-- **Store Credit Display**: Reads Shopify's built-in Store Credit account balance in the customer profile block, with legacy metafield fallback.
-- **Operational Backend**: Optional Node/Express backend for Admin GraphQL store credit transactions, native discount codes, and order/customer metafield display snapshots.
-- **Preorder Coupon Foundation**: Customer portal offer display, backend offer configuration, Admin GraphQL discount setup endpoint, and a Rust Shopify Discount Function for preorder tiers.
-- **Preorder Cart Integration**: Backend cart planner and storefront browser script for adding missing samples/freebies and cleaning stale auto-managed lines.
-- **Resilient UI**: Built-in error boundaries and loading states for a seamless user experience.
+## Engineering highlights
 
-## Repository Structure
+| Area | Implementation |
+| --- | --- |
+| Customer portal | Five modular Shopify customer-account UI extension blocks |
+| Backend | Node/Express service for privileged Shopify Admin GraphQL mutations |
+| Store credit | Native Shopify store-credit reads and backend transaction support |
+| Discounts | App-managed preorder discount setup through Admin GraphQL |
+| Checkout logic | Rust Shopify Discount Function compiled for Shopify Functions |
+| Cart automation | Storefront reconciliation for samples/freebies and stale managed lines |
+| Resilience | Loading states, error boundaries and legacy metafield fallbacks |
+| Verification | Backend and UI-extension test suites |
 
-- `pristine-ext/`: Main Shopify app directory.
-  - `extensions/pristine-forests-ui/`: Source code for the UI extensions.
-    - `src/`: React components and design tokens.
-    - `shopify.extension.toml`: Extension configuration.
-  - `extensions/pristine-preorder-discount/`: Shopify Discount Function for the preorder percentage tiers.
-  - `web/`: Operational backend for Shopify Admin GraphQL mutations.
+The system separates **customer-facing reads**, **privileged backend mutations**, **checkout-time discount computation**, and **storefront cart orchestration** so each concern runs in the environment Shopify expects.
+
+---
+
+## Architecture
+
+```text
+Customer Account UI Extensions
+        |
+        +--> Customer Account API
+        |       |
+        |       +--> profile / order / display data
+        |
+        +--> Node / Express backend
+                |
+                +--> Shopify Admin GraphQL
+                |       +--> store credit
+                |       +--> discounts
+                |       +--> metafield snapshots
+                |
+                +--> preorder cart planner
+                        |
+                        v
+                storefront reconciliation script
+
+Checkout
+   |
+   v
+Rust Shopify Discount Function
+   |
+   +--> preorder percentage tiers
+   +--> configured free-item discounts
+   +--> sample entitlement discounts
+```
+
+---
+
+## Customer portal
+
+The customer-account extension provides modular blocks that can be positioned independently through Shopify's editor.
+
+Capabilities include:
+
+- customer-facing banners and offer surfaces
+- coupon / preorder offer presentation
+- store-credit balance display
+- order and customer information blocks
+- backend-owned display metafields with legacy fallbacks
+- loading and failure states for resilient rendering
+
+The UI uses Shopify's native semantic tokens to remain consistent with the host customer-account experience.
+
+---
+
+## Backend
+
+`pristine-ext/web/` contains the Node/Express backend responsible for operations that require Shopify Admin API privileges.
+
+It handles:
+
+- Admin GraphQL store-credit transactions
+- app-managed discount creation and updates
+- customer/order metafield display snapshots
+- preorder offer configuration
+- cart-planning logic for samples and freebies
+
+Run it with:
+
+```bash
+cd pristine-ext/web
+cp .env.example .env
+npm install
+npm test
+npm start
+```
+
+Secrets are configured through environment variables and are not intended to be committed.
+
+---
+
+## Preorder discount system
+
+The preorder workflow spans three separate Shopify surfaces because each has different platform permissions.
+
+### 1. Customer portal
+
+Displays available preorder offers and backend-managed offer state.
+
+### 2. Shopify Discount Function
+
+A Rust function computes checkout/cart discount candidates for:
+
+- `PREORDER25`
+- `PREORDER30`
+- `PREORDER40`
+- configured free-item benefits
+- same-category travel-size rewards
+- configured sample entitlements
+- manual coupon overrides
+
+It also performs best-value selection across eligible benefits.
+
+### 3. Storefront cart integration
+
+Shopify Discount Functions can discount existing cart lines but cannot add or remove lines. The storefront integration therefore handles missing rewards and stale auto-managed lines separately.
+
+`pristine-ext/web/public/preorder-cart.js`:
+
+- reconciles managed lines after cart mutations
+- observes both `fetch` and `XMLHttpRequest` cart traffic
+- plans projected rewards through `POST /api/preorder-cart/plan`
+- removes stale rewards before adding updated lines
+- exposes `window.PristinePreorderCart.addProductWithRewards(...)`
+- prevents concurrent reconciliation from racing against an in-flight product add
+
+This separation avoids treating checkout functions as if they have storefront mutation capabilities they do not actually possess.
+
+---
+
+## Repository structure
+
+```text
+pfShopifyAppExtension/
+├── pristine-ext/
+│   ├── extensions/
+│   │   ├── pristine-forests-ui/
+│   │   │   └── src/                  # Customer Account UI extensions
+│   │   └── pristine-preorder-discount/
+│   │       └── ...                   # Rust Shopify Discount Function
+│   └── web/
+│       ├── public/preorder-cart.js   # Storefront cart integration
+│       └── ...                       # Express backend + Admin GraphQL
+├── HANDOVER.md
+└── README.md
+```
+
+---
 
 ## Development
 
 ### Prerequisites
 
+- Node.js / npm
 - Shopify CLI
-- Node.js & npm
-- Rust with the `wasm32-unknown-unknown` target:
-  ```powershell
-  rustup target add wasm32-unknown-unknown
-  ```
+- Rust
+- `wasm32-unknown-unknown` target
 
-### Setup
-
-1. Navigate to the app directory:
-   ```powershell
-   cd pristine-ext
-   ```
-2. Install dependencies:
-   ```powershell
-   npm install
-   ```
-3. Start the dev server:
-   ```powershell
-   shopify app dev
-   ```
-
-### Backend
-
-The backend is in `pristine-ext/web` and owns Shopify mutations. It uses Admin GraphQL for store credit, discounts, and metafield display snapshots.
-
-```powershell
-cd pristine-ext/web
-npm test
-npm start
+```bash
+rustup target add wasm32-unknown-unknown
 ```
 
-Configure `pristine-ext/web/.env` from `.env.example`. Do not commit secrets.
+Install and run the Shopify app:
 
-### Preorder Discounts
+```bash
+git clone https://github.com/Krishh003/pfShopifyAppExtension.git
+cd pfShopifyAppExtension/pristine-ext
+npm install
+shopify app dev
+```
 
-The preorder coupon implementation is now represented locally across items 1-12:
+### Tests
 
-1. Customer portal display for preorder offers.
-2. Static/app-managed discount code setup payloads.
-3. Backend offer configuration.
-4. Admin endpoint to create/update app-managed preorder discounts.
-5. Rust Shopify Discount Function for `PREORDER25`, `PREORDER30`, and `PREORDER40` percentage tiers.
-6. Manual coupon override plumbing in the function configuration.
-7. Fixed free item discounts for configured variant IDs when the qualifying item is already in cart.
-8. Travel-size same-category matching through configured product type and travel variant mappings.
-9. Best-value selection by estimated savings across eligible percentage and free-item benefits.
-10. Discount messages returned from the function candidates for checkout/cart display surfaces.
-11. Sample entitlement discounts when configured sample variant lines are already in cart.
-12. Cart cleanup contract metadata for the later cart integration.
+Backend:
 
-Important platform limit: Shopify Discount Functions can discount eligible cart lines, but they cannot add or remove cart lines. Sample auto-add and cleanup still need a storefront/cart integration to insert missing sample/freebie lines and remove stale lines. The function will discount those lines when they are present.
-
-The storefront integration now lives in `pristine-ext/web/public/preorder-cart.js` (current `SCRIPT_VERSION = "gift-card-instant-20260518-v8"`) and is backed by `POST /api/preorder-cart/plan`. It must be loaded by the Shopify theme or app proxy storefront surface to affect a real customer cart. Configure `PREORDER_CART_CONFIG.sampleRewards` with numeric Ajax variant IDs to auto-add 5 lower-cost samples below INR 5000 and 1 premium sample from INR 5000 upward.
-
-The script does three things on the storefront:
-
-1. Reconciles auto-managed lines on page load and after any cart mutation by hooking into `fetch`/`XMLHttpRequest` and matching cart paths with the regex `/\/cart\/(add|change|update|clear)(\.js)?$/`. Matching `/cart/change` without the `.js` suffix is required for Dawn-based themes whose drawer `+`/`-` controls call `/cart/change`.
-2. Provides `window.PristinePreorderCart.addProductWithRewards(formData, options)` for the patched theme product form. When called, it opens the cart drawer immediately with a loading overlay, fetches the projected plan, applies removals first, adds the paid item with Section Rendering payload, and adds reward lines in the background.
-3. Holds a `pristineAddInflight` counter while any add-with-rewards call is in flight. The mutation observer and `settleCart` reconcile loop both bail when the counter is above zero so background reconciles never re-add a sample that the click flow just removed.
-
-The preorder function is deployed as Rust. Its Shopify extension config must keep `export = "run"` so checkout invokes the discount logic instead of the fallback `_start` entrypoint. The latest verified dev-store release is `pristine-forests-portal-48`.
-
-Run the related tests from each package:
-
-```powershell
+```bash
 cd pristine-ext/web
-npm test
-
-cd ../extensions/pristine-forests-ui
 npm test
 ```
 
-### Deployment
+UI extension:
 
-To deploy the extensions to Shopify:
-```powershell
+```bash
+cd pristine-ext/extensions/pristine-forests-ui
+npm test
+```
+
+### Deploy
+
+```bash
+cd pristine-ext
 shopify app deploy
 ```
 
+---
+
 ## Documentation
 
-- [HANDOVER.md](./HANDOVER.md): Project status and implementation details.
-- [pristine-ext/web/README.md](./pristine-ext/web/README.md): Backend endpoints, scopes, and setup.
-- [pristine-ext/extensions/pristine-preorder-discount/README.md](./pristine-ext/extensions/pristine-preorder-discount/README.md): Discount Function behavior and limits.
-- [CLAUDE.md](./CLAUDE.md): Instructions for AI assistants (Claude).
-- [GEMINI.md](./GEMINI.md): Instructions for AI assistants (Gemini).
+- [Project handover](./HANDOVER.md)
+- [Backend documentation](./pristine-ext/web/README.md)
+- [Discount Function documentation](./pristine-ext/extensions/pristine-preorder-discount/README.md)
+
+The repository also contains implementation notes used during development, while this README is intended as the high-level engineering overview.
